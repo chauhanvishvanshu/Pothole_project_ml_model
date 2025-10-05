@@ -42,11 +42,11 @@ pothole-detection/
 ### 1️⃣ Clone or Download the Repository
 
 ```bash
-git clone https://github.com/yourusername/pothole-detection.git
-cd pothole-detection
+git clone https://github.com/chauhanvishvanshu/Pothole_project_ml_model.git
+cd Pothole_project_ml_model
 ```
 
-### 2️⃣ Create Virtual Environment
+### 2️⃣ Create Virtual Environment{no need}- skip this
 
 ```bash
 python -m venv venv
@@ -66,7 +66,7 @@ pip install -r requirements.txt
 Make sure your input video is named **input_video.mp4** and placed in the same folder.
 
 ```bash
-python detect_pothole.py
+python main.py
 ```
 
 ### Output:
@@ -112,6 +112,6 @@ numpy==1.26.4
 
 ## 👨‍💻 Author
 
-**Your Name**
+**Vishvanshu Chauhan**
 B.Tech CSE (AI) Student
 Project: Pothole Detection System (Windows Version)
