@@ -115,3 +115,11 @@ numpy==1.26.4
 **Vishvanshu Chauhan**
 B.Tech CSE (AI) Student
 Project: Pothole Detection System (Windows Version)
+
+___
+
+## USE CASE
+Further used in Pothole Detection Project..
+**A complete web platform where all features will implemented soon**
+
+**The link of web will be available soon**
