@@ -313,5 +313,21 @@ Special thanks to:
 
 ---
 
-## Documented By -- Vishvanshu Chauhan
+
 ## Contact -- chauhanvishvanshu@gmail.com
+
+---
+
+## 🧾 Additional Documentation
+
+For my personal development notes, resource links, and environment setup details, check:
+
+🔗 **[Project Resources & References](docs_resources.md)**  
+*(includes all datasets, tutorials, YOLOv12 training sources, and dependency setup info)*
+
+---
+
+<p align="center">
+  <sub>📘 Maintained by <b>Vishvanshu Chauhan</b> • Last updated: 2025</sub><br>
+  <sup>YOLOv12 + Flask | Pothole Detection Research Project</sup>
+</p>
