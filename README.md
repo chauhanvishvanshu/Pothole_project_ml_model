@@ -322,7 +322,7 @@ Special thanks to:
 
 For my personal development notes, resource links, and environment setup details, check:
 
-🔗 **[Project Resources & References](docs_resources.md)**  
+🔗 **[Project Resources & References](reference_notes.md)**  
 *(includes all datasets, tutorials, YOLOv12 training sources, and dependency setup info)*
 
 ---
