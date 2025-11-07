@@ -1,0 +1,256 @@
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>PyResearch - Pothole Detection Dashboard</title>
+
+  <style>
+    :root {
+      --blue: #0055ff;
+      --muted: #f4f6f8;
+      --card: #ffffff;
+      --success: #28a745;
+      --accent: #ff00ff;
+      --panel-border: 1px solid var(--blue);
+    }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Roboto, Arial, sans-serif;
+      background: var(--muted);
+      color: #222;
+    }
+    .header {
+      background: var(--blue);
+      color: #fff;
+      padding: 18px 12px;
+      text-align: center;
+      box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12);
+    }
+    .header h1 { margin: 0; font-size: 1.6rem; }
+    .header p { margin: 4px 0 0; font-size: 0.95rem; opacity: 0.95; }
+
+    .container {
+      max-width: 1280px;
+      margin: 26px auto;
+      padding: 16px;
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+
+    .left { flex: 2; min-width: 320px; }
+    .right { flex: 1; min-width: 280px; align-self: flex-start; }
+
+    .card {
+      background: var(--card);
+      border-radius: 10px;
+      padding: 14px;
+      box-shadow: 0 6px 18px rgba(15, 15, 15, 0.06);
+      border: var(--panel-border);
+    }
+
+    .upload { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+    .upload input[type=file] { flex: 1; }
+    .btn {
+      background: var(--blue);
+      color: #fff;
+      border: none;
+      padding: 9px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .btn.alt { background: #333; color: #fff; }
+    .btn.export { background: var(--success); }
+
+    .video {
+      width: 100%;
+      border-radius: 8px;
+      border: 3px solid var(--blue);
+      overflow: hidden;
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+    }
+    .video img { display: block; width: 100%; height: auto; }
+
+    .stats-list { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+    .stat { background: #f8f9fa; padding: 10px; border-radius: 8px; font-size: 0.98rem; }
+    .stat strong { display: inline-block; width: 150px; color: #111; }
+
+    /* Summary card */
+    .summary {
+      margin-top: 12px;
+      padding: 14px;
+      border-radius: 10px;
+      background: linear-gradient(90deg, #fff, #f8fbff);
+      border: 1px solid rgba(0, 85, 255, 0.12);
+      display: none;
+      animation: fadeIn 0.6s ease-in-out;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .summary h3 { margin: 0 0 8px; font-size: 1.1rem; color: var(--blue); }
+    .summary-row { display: flex; gap: 12px; flex-wrap: wrap; }
+    .summary-item { flex: 1; min-width: 120px; background: #f6f8ff; padding: 10px; border-radius: 8px; text-align: center; }
+    .download {
+      display: inline-block;
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      text-decoration: none;
+      background: var(--success);
+      color: #fff;
+      font-weight: 700;
+      transition: all 0.3s ease;
+    }
+    .download:hover { background: #1e8e3e; }
+
+    footer {
+      margin-top: 28px;
+      background: var(--blue);
+      color: #fff;
+      padding: 12px;
+      text-align: center;
+      border-radius: 8px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+    }
+
+    @media (max-width: 800px) {
+      .container { padding: 10px; }
+      .stat strong { width: 120px; }
+    }
+  </style>
+</head>
+
+<body>
+  <header class="header">
+    <h1>PyResearch — Pothole Detection</h1>
+    <p>Real-time YOLOv12 detection • Auto CSV reports per video</p>
+  </header>
+
+  <main class="container">
+    <section class="left">
+      <div class="card">
+        <form id="uploadForm" class="upload" action="{{ url_for('upload_video') }}" method="post" enctype="multipart/form-data">
+          <input type="file" name="video" accept="video/*" required />
+          <button class="btn" type="submit">Upload & Run</button>
+          <button id="stopBtn" class="btn alt" type="button" style="display:none">Stop</button>
+        </form>
+
+        <div class="video">
+          <img id="videoFeed" src="{{ url_for('video_feed') }}" alt="Video feed" />
+        </div>
+
+        <div id="summary" class="summary" role="status" aria-live="polite">
+          <h3>✅ Processing Complete</h3>
+          <div class="summary-row">
+            <div class="summary-item">
+              <strong>Potholes</strong>
+              <div id="sum-count">0</div>
+            </div>
+            <div class="summary-item">
+              <strong>Total Area (m²)</strong>
+              <div id="sum-area">0</div>
+            </div>
+            <div class="summary-item">
+              <strong>Avg Confidence</strong>
+              <div id="sum-avg-conf">0.00</div>
+            </div>
+          </div>
+          <a id="csvDownload" href="{{ url_for('export_csv') }}" class="download">⬇️ Download CSV</a>
+        </div>
+      </div>
+    </section>
+
+    <aside class="right">
+      <div class="card">
+        <h2 style="color:var(--blue);margin:0 0 10px">Live Statistics</h2>
+        <div class="stats-list">
+          <div class="stat"><strong>Model:</strong> YOLOv12 (best.pt)</div>
+          <div class="stat"><strong>Status:</strong> <span id="status">Idle</span></div>
+          <div class="stat"><strong>Detections:</strong> <span id="detection-count">0</span></div>
+          <div class="stat"><strong>Total Area (m²):</strong> <span id="live-area">0</span></div>
+          <div class="stat"><strong>Avg Confidence:</strong> <span id="avg-conf">0.00</span></div>
+        </div>
+        <a id="manualExport" class="btn export" href="{{ url_for('export_csv') }}" style="margin-top:12px;">Export CSV</a>
+      </div>
+
+      <div class="card" style="margin-top:14px;">
+        <h3 style="margin:0 0 8px;">Quick Notes</h3>
+        <ul style="margin:0 0 0 18px;padding:0;">
+          <li>Upload a video → automatic YOLOv12 detection starts.</li>
+          <li>After completion, a summary and CSV download link appear.</li>
+          <li>You can also manually export CSV anytime using the right panel.</li>
+        </ul>
+      </div>
+    </aside>
+  </main>
+
+  <footer>© 2025 PyResearch · YOLOv12 Pothole Vision System</footer>
+
+  <script>
+    const detectionEl = document.getElementById('detection-count');
+    const liveAreaEl = document.getElementById('live-area');
+    const avgConfEl = document.getElementById('avg-conf');
+    const statusEl = document.getElementById('status');
+    const summaryCard = document.getElementById('summary');
+    const sumCount = document.getElementById('sum-count');
+    const sumArea = document.getElementById('sum-area');
+    const sumConf = document.getElementById('sum-avg-conf');
+    const csvDownload = document.getElementById('csvDownload');
+
+    let lastProcessing = false;
+
+    function fetchJSON(url) {
+      return fetch(url, { cache: "no-store" }).then(r => r.ok ? r.json() : Promise.reject());
+    }
+
+    function updateStats() {
+      fetchJSON('/detection_count')
+        .then(data => {
+          detectionEl.textContent = data.detections ?? 0;
+          liveAreaEl.textContent = data.total_area ?? 0;
+          avgConfEl.textContent = (data.avg_confidence ?? 0).toFixed(2);
+        })
+        .catch(() => {});
+    }
+
+    function checkProcessing() {
+      fetchJSON('/processing_status')
+        .then(data => {
+          const processing = !!data.processing;
+          statusEl.textContent = processing ? 'Processing...' : 'Idle';
+          if (!processing && lastProcessing) {
+            showLastReport();
+          }
+          lastProcessing = processing;
+        })
+        .catch(() => {
+          showLastReport();
+        });
+    }
+
+    function showLastReport() {
+      fetchJSON('/last_report')
+        .then(report => {
+          if (report && report.csv_url) {
+            sumCount.textContent = report.total_detections ?? 0;
+            sumArea.textContent = report.total_area ?? 0;
+            sumConf.textContent = (report.average_confidence ?? 0).toFixed(2);
+            csvDownload.href = report.csv_url;
+            summaryCard.style.display = 'block';
+          }
+        })
+        .catch(() => {});
+    }
+
+    setInterval(() => {
+      updateStats();
+      checkProcessing();
+    }, 1000);
+  </script>
+</body>
+</html>
