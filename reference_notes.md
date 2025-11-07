@@ -136,4 +136,5 @@ Use git pull before modifying to avoid version mismatches.
 
 You can use this document as your own developer changelog for future updates.
 
-<p align="center"> <sub>🧠 Personal Dev Notes by <b>Vishvanshu Chauhan</b> • Updated November 2025</sub><br> <sup>YOLOv12 + Flask | Computer Vision | Road Safety AI</sup> </p> ```
+<br>
+<p align="center"> <sub>🧠 Personal Dev Notes by <b>Vishvanshu Chauhan</b> • Updated November 2025</sub><br> <sup>YOLOv12 + Flask | Computer Vision | Road Safety AI</sup> </p> 
