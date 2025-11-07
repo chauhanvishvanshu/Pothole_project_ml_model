@@ -1,6 +1,6 @@
 
 ---
-# 🕳️ PyResearch – Intelligent Pothole Detection System (YOLOv12 + Flask)
+# 🕳️ Road Watch – Intelligent Pothole Detection System (YOLOv12 + Flask)
 
 > 🚀 Real-Time Computer Vision Dashboard for Automated Pothole Detection and Analysis  
 > Built with **YOLOv12**, **OpenCV**, and **Flask** — complete with per-video CSV reporting.
@@ -9,7 +9,7 @@
 
 ## 📘 Overview
 
-**PyResearch** is an AI-powered pothole detection web system built using **YOLOv12** (Ultralytics) and **Flask**.  
+**Road Watch** is an AI-powered pothole detection web system built using **YOLOv12** (Ultralytics) and **Flask**.  
 It allows users to upload road inspection videos, automatically detects potholes frame-by-frame, calculates the area (m²) and confidence, and generates structured CSV reports per video.
 
 The system is ideal for:
