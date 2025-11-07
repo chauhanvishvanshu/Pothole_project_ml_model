@@ -126,7 +126,7 @@ Pothole_project_ml_model/
 │
 ├── uploads/             # Uploaded videos
 └── reports/             # CSV results for each processed video
-
+````
 📚 Quick Reminders
 If you retrain the model → update best.pt and note date/version here.
 
