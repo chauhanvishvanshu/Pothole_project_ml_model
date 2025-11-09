@@ -100,17 +100,14 @@
     .speed-medium { background: var(--warning); color: #000; }
     .speed-bad { background: var(--danger); }
 
-    #eta {
-      font-weight: 700;
-      color: var(--blue);
-    }
+    #eta { font-weight: 700; color: var(--blue); }
   </style>
 </head>
 
 <body>
   <header class="header">
     <h1>PyResearch — Pothole Detection</h1>
-    <p>Real-time YOLOv12 detection • FPS & ETA dashboard</p>
+    <p>Real-time YOLOv12 detection • GPU optimized pipeline</p>
   </header>
 
   <main class="container">
@@ -119,7 +116,6 @@
         <form id="uploadForm" class="upload" action="{{ url_for('upload_video') }}" method="post" enctype="multipart/form-data">
           <input type="file" name="video" accept="video/*" required />
           <button class="btn" type="submit">Upload & Run</button>
-          <button id="stopBtn" class="btn alt" type="button" style="display:none">Stop</button>
         </form>
 
         <div class="video">
@@ -132,14 +128,12 @@
       <div class="card">
         <h2 style="color:var(--blue);margin:0 0 10px">Live Statistics</h2>
         <div class="stats-list">
-          <div class="stat"><strong>Model:</strong> YOLOv12 (best.pt)</div>
           <div class="stat"><strong>Status:</strong> <span id="status">Idle</span></div>
           <div class="stat"><strong>Detections:</strong> <span id="detection-count">0</span></div>
-          <div class="stat"><strong>Total Area (m²):</strong> <span id="live-area">0</span></div>
+          <div class="stat"><strong>Total Area (m²):</strong> <span id="live-area">0.00</span></div>
           <div class="stat"><strong>Avg Confidence:</strong> <span id="avg-conf">0.00</span></div>
           <div class="stat"><strong>Video FPS:</strong> <span id="video-fps">0.00</span></div>
           <div class="stat"><strong>Processing FPS:</strong> <span id="proc-fps">0.00</span></div>
-          <div class="stat"><strong>Speed:</strong> <span id="proc-speed">0.00</span>% <span id="speed-status" class="speed-status speed-bad">N/A</span></div>
           <div class="stat"><strong>ETA:</strong> <span id="eta">--:--</span></div>
         </div>
         <a id="manualExport" class="btn export" href="{{ url_for('export_csv') }}" style="margin-top:12px;">Export CSV</a>
@@ -148,11 +142,10 @@
       <div class="card" style="margin-top:14px;">
         <h3 style="margin:0 0 8px;">Quick Notes</h3>
         <ul style="margin:0 0 0 18px;padding:0;">
-          <li>Upload a video → YOLOv12 detection starts automatically.</li>
-          <li>Video FPS = original video frame rate.</li>
-          <li>Processing FPS = YOLO model’s processing speed.</li>
-          <li>Speed % = (Processing / Video) × 100 → real-time efficiency.</li>
-          <li>ETA updates live as frames are processed.</li>
+          <li>Uploads reset cleanly between runs (no leftover state).</li>
+          <li>Processing FPS reflects true YOLO inference rate.</li>
+          <li>ETA recalculates dynamically each second.</li>
+          <li>CSV export logs frame-by-frame details.</li>
         </ul>
       </div>
     </aside>
@@ -161,88 +154,39 @@
   <footer>© 2025 PyResearch · YOLOv12 Pothole Vision System</footer>
 
   <script>
-    const detectionEl = document.getElementById('detection-count');
-    const liveAreaEl = document.getElementById('live-area');
-    const avgConfEl = document.getElementById('avg-conf');
-    const statusEl = document.getElementById('status');
-    const speedEl = document.getElementById('proc-speed');
-    const speedStatus = document.getElementById('speed-status');
-    const etaEl = document.getElementById('eta');
-
-    let lastProcessing = false;
-
-    function fetchJSON(url) {
-      return fetch(url, { cache: "no-store" }).then(r => r.ok ? r.json() : Promise.reject());
+    async function fetchJSON(url) {
+      try { const res = await fetch(url, { cache: "no-store" }); return res.ok ? res.json() : null; }
+      catch { return null; }
     }
 
-    function updateStats() {
-      fetchJSON('/detection_count')
-        .then(data => {
-          detectionEl.textContent = data.detections ?? 0;
-          liveAreaEl.textContent = data.total_area ?? 0;
-          avgConfEl.textContent = (data.avg_confidence ?? 0).toFixed(2);
-        })
-        .catch(() => {});
+    async function refreshStats() {
+      const det = await fetchJSON("/detection_count");
+      const prog = await fetchJSON("/progress");
+      const proc = await fetchJSON("/processing_status");
+
+      if (det) {
+        document.getElementById("detection-count").textContent = det.detections;
+        document.getElementById("live-area").textContent = det.total_area.toFixed(2);
+        document.getElementById("avg-conf").textContent = det.avg_confidence.toFixed(2);
+      }
+
+      if (prog) {
+        document.getElementById("video-fps").textContent = prog.video_fps.toFixed(2);
+        document.getElementById("proc-fps").textContent = prog.processing_fps.toFixed(2);
+
+        const eta = prog.estimated_time_left;
+        if (eta > 0) {
+          const m = Math.floor(eta / 60), s = Math.floor(eta % 60);
+          document.getElementById("eta").textContent = `${m.toString().padStart(2,"0")}:${s.toString().padStart(2,"0")}`;
+        } else document.getElementById("eta").textContent = "--:--";
+      }
+
+      if (proc) {
+        document.getElementById("status").textContent = proc.processing ? "Processing..." : "Idle";
+      }
     }
 
-    function updateProgress() {
-      fetchJSON('/progress')
-        .then(data => {
-          if (!data) return;
-
-          if (data.video_fps)
-            document.getElementById('video-fps').textContent = data.video_fps.toFixed(2);
-          if (data.processing_fps)
-            document.getElementById('proc-fps').textContent = data.processing_fps.toFixed(2);
-          if (data.processing_speed_percent) {
-            speedEl.textContent = data.processing_speed_percent.toFixed(1);
-
-            const sp = data.processing_speed_percent;
-            if (sp >= 80) {
-              speedStatus.textContent = "🟢 Fast";
-              speedStatus.className = "speed-status speed-good";
-            } else if (sp >= 50) {
-              speedStatus.textContent = "🟠 Moderate";
-              speedStatus.className = "speed-status speed-medium";
-            } else {
-              speedStatus.textContent = "🔴 Slow";
-              speedStatus.className = "speed-status speed-bad";
-            }
-          }
-
-          // ETA display
-          if (data.estimated_time_left) {
-            const seconds = Math.max(0, data.estimated_time_left);
-            const mins = Math.floor(seconds / 60);
-            const secs = Math.floor(seconds % 60);
-            etaEl.textContent = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-
-            // Colorize ETA (green <1min, orange <2min, red otherwise)
-            if (seconds < 60) etaEl.style.color = "var(--success)";
-            else if (seconds < 120) etaEl.style.color = "var(--warning)";
-            else etaEl.style.color = "var(--danger)";
-          } else {
-            etaEl.textContent = "--:--";
-          }
-        })
-        .catch(() => {});
-    }
-
-    function checkProcessing() {
-      fetchJSON('/processing_status')
-        .then(data => {
-          const processing = !!data.processing;
-          statusEl.textContent = processing ? 'Processing...' : 'Idle';
-          lastProcessing = processing;
-        })
-        .catch(() => {});
-    }
-
-    setInterval(() => {
-      updateStats();
-      updateProgress();
-      checkProcessing();
-    }, 1000);
+    setInterval(refreshStats, 1000);
   </script>
 </body>
 </html>
