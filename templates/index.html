@@ -1,4 +1,3 @@
-<!-- templates/index.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -12,8 +11,8 @@
       --muted: #f4f6f8;
       --card: #ffffff;
       --success: #28a745;
-      --accent: #ff00ff;
-      --panel-border: 1px solid var(--blue);
+      --warning: #ffb100;
+      --danger: #dc3545;
     }
     body {
       margin: 0;
@@ -48,7 +47,7 @@
       border-radius: 10px;
       padding: 14px;
       box-shadow: 0 6px 18px rgba(15, 15, 15, 0.06);
-      border: var(--panel-border);
+      border: 1px solid var(--blue);
     }
 
     .upload { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
@@ -62,6 +61,7 @@
       cursor: pointer;
       font-weight: 600;
     }
+
     .btn.alt { background: #333; color: #fff; }
     .btn.export { background: var(--success); }
 
@@ -78,36 +78,6 @@
     .stat { background: #f8f9fa; padding: 10px; border-radius: 8px; font-size: 0.98rem; }
     .stat strong { display: inline-block; width: 150px; color: #111; }
 
-    /* Summary card */
-    .summary {
-      margin-top: 12px;
-      padding: 14px;
-      border-radius: 10px;
-      background: linear-gradient(90deg, #fff, #f8fbff);
-      border: 1px solid rgba(0, 85, 255, 0.12);
-      display: none;
-      animation: fadeIn 0.6s ease-in-out;
-    }
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(10px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    .summary h3 { margin: 0 0 8px; font-size: 1.1rem; color: var(--blue); }
-    .summary-row { display: flex; gap: 12px; flex-wrap: wrap; }
-    .summary-item { flex: 1; min-width: 120px; background: #f6f8ff; padding: 10px; border-radius: 8px; text-align: center; }
-    .download {
-      display: inline-block;
-      margin-top: 10px;
-      padding: 10px 12px;
-      border-radius: 8px;
-      text-decoration: none;
-      background: var(--success);
-      color: #fff;
-      font-weight: 700;
-      transition: all 0.3s ease;
-    }
-    .download:hover { background: #1e8e3e; }
-
     footer {
       margin-top: 28px;
       background: var(--blue);
@@ -118,9 +88,21 @@
       box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
     }
 
-    @media (max-width: 800px) {
-      .container { padding: 10px; }
-      .stat strong { width: 120px; }
+    .speed-status {
+      font-weight: 700;
+      padding: 4px 8px;
+      border-radius: 6px;
+      display: inline-block;
+      color: #fff;
+    }
+
+    .speed-good { background: var(--success); }
+    .speed-medium { background: var(--warning); color: #000; }
+    .speed-bad { background: var(--danger); }
+
+    #eta {
+      font-weight: 700;
+      color: var(--blue);
     }
   </style>
 </head>
@@ -128,7 +110,7 @@
 <body>
   <header class="header">
     <h1>PyResearch — Pothole Detection</h1>
-    <p>Real-time YOLOv12 detection • Auto CSV reports per video</p>
+    <p>Real-time YOLOv12 detection • FPS & ETA dashboard</p>
   </header>
 
   <main class="container">
@@ -143,25 +125,6 @@
         <div class="video">
           <img id="videoFeed" src="{{ url_for('video_feed') }}" alt="Video feed" />
         </div>
-
-        <div id="summary" class="summary" role="status" aria-live="polite">
-          <h3>✅ Processing Complete</h3>
-          <div class="summary-row">
-            <div class="summary-item">
-              <strong>Potholes</strong>
-              <div id="sum-count">0</div>
-            </div>
-            <div class="summary-item">
-              <strong>Total Area (m²)</strong>
-              <div id="sum-area">0</div>
-            </div>
-            <div class="summary-item">
-              <strong>Avg Confidence</strong>
-              <div id="sum-avg-conf">0.00</div>
-            </div>
-          </div>
-          <a id="csvDownload" href="{{ url_for('export_csv') }}" class="download">⬇️ Download CSV</a>
-        </div>
       </div>
     </section>
 
@@ -174,6 +137,10 @@
           <div class="stat"><strong>Detections:</strong> <span id="detection-count">0</span></div>
           <div class="stat"><strong>Total Area (m²):</strong> <span id="live-area">0</span></div>
           <div class="stat"><strong>Avg Confidence:</strong> <span id="avg-conf">0.00</span></div>
+          <div class="stat"><strong>Video FPS:</strong> <span id="video-fps">0.00</span></div>
+          <div class="stat"><strong>Processing FPS:</strong> <span id="proc-fps">0.00</span></div>
+          <div class="stat"><strong>Speed:</strong> <span id="proc-speed">0.00</span>% <span id="speed-status" class="speed-status speed-bad">N/A</span></div>
+          <div class="stat"><strong>ETA:</strong> <span id="eta">--:--</span></div>
         </div>
         <a id="manualExport" class="btn export" href="{{ url_for('export_csv') }}" style="margin-top:12px;">Export CSV</a>
       </div>
@@ -181,9 +148,11 @@
       <div class="card" style="margin-top:14px;">
         <h3 style="margin:0 0 8px;">Quick Notes</h3>
         <ul style="margin:0 0 0 18px;padding:0;">
-          <li>Upload a video → automatic YOLOv12 detection starts.</li>
-          <li>After completion, a summary and CSV download link appear.</li>
-          <li>You can also manually export CSV anytime using the right panel.</li>
+          <li>Upload a video → YOLOv12 detection starts automatically.</li>
+          <li>Video FPS = original video frame rate.</li>
+          <li>Processing FPS = YOLO model’s processing speed.</li>
+          <li>Speed % = (Processing / Video) × 100 → real-time efficiency.</li>
+          <li>ETA updates live as frames are processed.</li>
         </ul>
       </div>
     </aside>
@@ -196,11 +165,9 @@
     const liveAreaEl = document.getElementById('live-area');
     const avgConfEl = document.getElementById('avg-conf');
     const statusEl = document.getElementById('status');
-    const summaryCard = document.getElementById('summary');
-    const sumCount = document.getElementById('sum-count');
-    const sumArea = document.getElementById('sum-area');
-    const sumConf = document.getElementById('sum-avg-conf');
-    const csvDownload = document.getElementById('csvDownload');
+    const speedEl = document.getElementById('proc-speed');
+    const speedStatus = document.getElementById('speed-status');
+    const etaEl = document.getElementById('eta');
 
     let lastProcessing = false;
 
@@ -218,37 +185,62 @@
         .catch(() => {});
     }
 
+    function updateProgress() {
+      fetchJSON('/progress')
+        .then(data => {
+          if (!data) return;
+
+          if (data.video_fps)
+            document.getElementById('video-fps').textContent = data.video_fps.toFixed(2);
+          if (data.processing_fps)
+            document.getElementById('proc-fps').textContent = data.processing_fps.toFixed(2);
+          if (data.processing_speed_percent) {
+            speedEl.textContent = data.processing_speed_percent.toFixed(1);
+
+            const sp = data.processing_speed_percent;
+            if (sp >= 80) {
+              speedStatus.textContent = "🟢 Fast";
+              speedStatus.className = "speed-status speed-good";
+            } else if (sp >= 50) {
+              speedStatus.textContent = "🟠 Moderate";
+              speedStatus.className = "speed-status speed-medium";
+            } else {
+              speedStatus.textContent = "🔴 Slow";
+              speedStatus.className = "speed-status speed-bad";
+            }
+          }
+
+          // ETA display
+          if (data.estimated_time_left) {
+            const seconds = Math.max(0, data.estimated_time_left);
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            etaEl.textContent = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+
+            // Colorize ETA (green <1min, orange <2min, red otherwise)
+            if (seconds < 60) etaEl.style.color = "var(--success)";
+            else if (seconds < 120) etaEl.style.color = "var(--warning)";
+            else etaEl.style.color = "var(--danger)";
+          } else {
+            etaEl.textContent = "--:--";
+          }
+        })
+        .catch(() => {});
+    }
+
     function checkProcessing() {
       fetchJSON('/processing_status')
         .then(data => {
           const processing = !!data.processing;
           statusEl.textContent = processing ? 'Processing...' : 'Idle';
-          if (!processing && lastProcessing) {
-            showLastReport();
-          }
           lastProcessing = processing;
-        })
-        .catch(() => {
-          showLastReport();
-        });
-    }
-
-    function showLastReport() {
-      fetchJSON('/last_report')
-        .then(report => {
-          if (report && report.csv_url) {
-            sumCount.textContent = report.total_detections ?? 0;
-            sumArea.textContent = report.total_area ?? 0;
-            sumConf.textContent = (report.average_confidence ?? 0).toFixed(2);
-            csvDownload.href = report.csv_url;
-            summaryCard.style.display = 'block';
-          }
         })
         .catch(() => {});
     }
 
     setInterval(() => {
       updateStats();
+      updateProgress();
       checkProcessing();
     }, 1000);
   </script>

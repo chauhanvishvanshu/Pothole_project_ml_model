@@ -1,4 +1,4 @@
-# app.py — YOLOv12 Pothole Detection + Video Upload + Auto CSV per Video (Final)
+ # app.py — YOLOv12 Pothole Detection with FPS, ETA, and Live Stats
 from flask import Flask, render_template, Response, jsonify, request, redirect, url_for, send_file
 import cv2
 import os
@@ -30,12 +30,19 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_DIR
 
 # Thread-safe state
 state_lock = threading.Lock()
+fps_lock = threading.Lock()
+
 detection_count = 0
 total_area_m2 = 0.0
 detection_logs = []
 current_video = None
 video_path = None
 processing = False
+video_fps = 0.0
+processing_fps = 0.0
+frames_this_second = 0
+total_frames = 0
+processed_frames = 0
 
 last_report = {
     "csv_path": None,
@@ -47,7 +54,7 @@ last_report = {
 }
 
 # ---------------- MODEL LOAD ----------------
-print("🚀 Loading YOLOv12 model (with Upload Support)...")
+print("🚀 Loading YOLOv12 model...")
 model = YOLO(MODEL_PATH)
 try:
     model.model.float()
@@ -56,7 +63,6 @@ except Exception:
     pass
 print("✅ Model loaded successfully!\n")
 # --------------------------------------------
-
 
 def ensure_dirs():
     for d in [UPLOAD_DIR, REPORT_DIR]:
@@ -91,86 +97,14 @@ def get_severity(area_m2):
 
 
 def reset_detection_log(video_name):
-    global detection_logs, detection_count, total_area_m2, current_video
+    global detection_logs, detection_count, total_area_m2, current_video, processed_frames
     with state_lock:
         detection_logs = []
         detection_count = 0
         total_area_m2 = 0.0
         current_video = video_name
+        processed_frames = 0
     print(f"\n🆕 New video session started: {video_name}\n")
-
-
-def compute_aggregate_from_logs(logs):
-    if not logs:
-        return 0, 0.0, 0.0
-    total_det = len(logs)
-    total_area = sum(l.get("area_m2", 0.0) for l in logs)
-    avg_conf = sum(l.get("confidence", 0.0) for l in logs) / total_det
-    return total_det, round(total_area, 2), round(avg_conf, 3)
-
-
-# ✅ FIXED — now uses Flask app context safely for url_for
-def save_csv_to_disk(video_name):
-    ensure_dirs()
-    with state_lock:
-        logs_copy = list(detection_logs)
-
-    if not logs_copy:
-        print("⚠️ No detections logged, skipping CSV save.")
-        return None
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_name = secure_filename(video_name)
-    filename = f"{safe_name}_detections_{timestamp}.csv"
-    filepath = os.path.join(REPORT_DIR, filename)
-
-    try:
-        with open(filepath, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=[
-                "frame_number", "video_time_s", "timestamp",
-                "confidence", "area_m2", "severity"
-            ])
-            writer.writeheader()
-            writer.writerows(logs_copy)
-
-        total_det, total_area, avg_conf = compute_aggregate_from_logs(logs_copy)
-
-        # create Flask context to safely build URL
-        with app.app_context():
-            csv_url = url_for("serve_report", filename=filename)
-
-        with state_lock:
-            last_report.update({
-                "csv_path": filepath,
-                "csv_url": csv_url,
-                "total_detections": total_det,
-                "total_area": total_area,
-                "average_confidence": avg_conf,
-                "video_name": safe_name
-            })
-
-        print(f"💾 CSV saved: {filepath}")
-        print(f"🔗 Accessible at: {csv_url}")
-        return filepath
-
-    except Exception as e:
-        print("❌ Failed to save CSV:", e)
-        traceback.print_exc()
-        return None
-
-
-def update_stats(count, total_area, logs):
-    global detection_count, total_area_m2, detection_logs
-    with state_lock:
-        detection_count = count
-        total_area_m2 = total_area
-        if logs:
-            detection_logs.extend(logs)
-
-
-def get_stats():
-    with state_lock:
-        return detection_count, round(total_area_m2, 2)
 
 
 def draw_boxes(frame, results, frame_number, video_time):
@@ -225,8 +159,41 @@ def draw_boxes(frame, results, frame_number, video_time):
     return frame, count, total_area, logs
 
 
+def infer_frame(fid, frame, video_time):
+    """Run YOLO inference on one frame and count processed FPS."""
+    global processed_frames
+    try:
+        start = time.time()
+        results = model.predict(
+            frame,
+            conf=CONFIDENCE_THRESHOLD,
+            iou=IOU_THRESHOLD,
+            imgsz=INFERENCE_SIZE,
+            verbose=False
+        )[0]
+        frame, dets, area, logs = draw_boxes(frame, results, fid, video_time)
+        end = time.time()
+
+        with state_lock:
+            detection_logs.extend(logs)
+            global detection_count, total_area_m2
+            detection_count += dets
+            total_area_m2 += area
+            processed_frames += 1
+
+        with fps_lock:
+            global frames_this_second
+            frames_this_second += 1
+
+        return fid, frame
+    except Exception as e:
+        print(f"⚠️ Inference error frame {fid}: {e}")
+        processed_frames += 1
+        return fid, frame
+
+
 def generate_frames():
-    global video_path, processing
+    global video_path, processing, total_frames, video_fps
     if not video_path:
         print("⚠️ No video selected.")
         return
@@ -239,6 +206,10 @@ def generate_frames():
         print(f"⚠️ Cannot open video source: {video_path}")
         return
 
+    video_fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
+    print(f"🎥 Video FPS: {video_fps:.2f}, Total Frames: {total_frames}")
+
     frame_number = 0
     with state_lock:
         processing = True
@@ -248,24 +219,10 @@ def generate_frames():
             success, frame = cap.read()
             if not success:
                 break
-
             frame_number += 1
             frame = cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT))
             video_time = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
-
-            try:
-                results = model.predict(
-                    source=frame,
-                    conf=CONFIDENCE_THRESHOLD,
-                    iou=IOU_THRESHOLD,
-                    imgsz=INFERENCE_SIZE,
-                    verbose=False
-                )[0]
-                frame, detections, total_area, logs = draw_boxes(frame, results, frame_number, video_time)
-                update_stats(detections, total_area, logs)
-            except Exception as e:
-                print("⚠️ Inference error:", e)
-                traceback.print_exc()
+            _, frame = infer_frame(frame_number, frame, video_time)
 
             ret, buffer = cv2.imencode(".jpg", frame)
             if not ret:
@@ -276,10 +233,19 @@ def generate_frames():
             time.sleep(0.005)
     finally:
         cap.release()
-        save_csv_to_disk(video_name)
         with state_lock:
             processing = False
         print(f"✅ Finished processing: {video_name}")
+
+
+# ---------------- FPS Monitor Thread ----------------
+def fps_monitor():
+    global frames_this_second, processing_fps
+    while True:
+        time.sleep(1.0)
+        with fps_lock:
+            processing_fps = frames_this_second
+            frames_this_second = 0
 
 
 # ---------------- ROUTES ----------------
@@ -315,46 +281,56 @@ def upload_video():
 
 @app.route("/video_feed")
 def video_feed():
-    return Response(generate_frames(),
-                    mimetype="multipart/x-mixed-replace; boundary=frame")
+    return Response(generate_frames(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
 
 @app.route("/detection_count")
 def detection_count_route():
-    count, total_area = get_stats()
+    """Return live stats for detections."""
     with state_lock:
-        avg_conf = round(
-            sum(d.get("confidence", 0.0) for d in detection_logs) / len(detection_logs), 3
-        ) if detection_logs else 0.0
-    return jsonify({"detections": count, "total_area": total_area, "avg_confidence": avg_conf})
+        logs_copy = list(detection_logs)
+
+    if not logs_copy:
+        return jsonify({
+            "detections": 0,
+            "total_area": 0.0,
+            "avg_confidence": 0.0
+        })
+
+    total_det = len(logs_copy)
+    total_area = round(sum(l.get("area_m2", 0.0) for l in logs_copy), 2)
+    avg_conf = round(sum(l.get("confidence", 0.0) for l in logs_copy) / total_det, 3)
+
+    return jsonify({
+        "detections": total_det,
+        "total_area": total_area,
+        "avg_confidence": avg_conf
+    })
 
 
-@app.route("/processing_status")
-def processing_status():
-    with state_lock:
-        return jsonify({"processing": processing})
-
-
-@app.route("/last_report")
-def last_report_route():
-    with state_lock:
-        if not last_report.get("csv_path"):
-            return jsonify({}), 404
-        return jsonify(last_report)
-
-
-@app.route("/reports/<path:filename>")
-def serve_report(filename):
-    safe_path = os.path.normpath(os.path.join(REPORT_DIR, filename))
-    if not safe_path.startswith(os.path.abspath(REPORT_DIR)):
-        return "Forbidden", 403
-    if not os.path.exists(safe_path):
-        return "Not found", 404
-    return send_file(safe_path, mimetype="text/csv", as_attachment=True, download_name=filename)
+@app.route("/progress")
+def progress_status():
+    with state_lock, fps_lock:
+        progress = (processed_frames / total_frames * 100) if total_frames > 0 else 0
+        remaining_frames = max(total_frames - processed_frames, 0)
+        est_time = remaining_frames / processing_fps if processing_fps > 0 else 0
+        speed_percent = (processing_fps / video_fps * 100) if video_fps > 0 else 0
+        return jsonify({
+            "processed_frames": processed_frames,
+            "total_frames": total_frames,
+            "progress_percent": round(progress, 2),
+            "video_fps": round(video_fps, 2),
+            "processing_fps": round(processing_fps, 2),
+            "processing_speed_percent": round(speed_percent, 1),
+            "estimated_time_left": round(est_time, 1)
+        })
 
 
 @app.route("/export_csv")
 def export_csv():
+    """Manual CSV export."""
+    global detection_logs, last_report
+
     with state_lock:
         logs_copy = list(detection_logs)
         last_csv = last_report.get("csv_path")
@@ -384,4 +360,5 @@ def export_csv():
 # ----------------------------------------
 if __name__ == "__main__":
     ensure_dirs()
+    threading.Thread(target=fps_monitor, daemon=True).start()
     app.run(debug=True, host="0.0.0.0", threaded=True)
