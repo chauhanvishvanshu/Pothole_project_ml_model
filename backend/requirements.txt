@@ -1,0 +1,25 @@
+# ---------- Core AI & Computer Vision ----------
+--extra-index-url https://download.pytorch.org/whl/cu121
+torch==2.5.1+cu121
+torchvision==0.20.1+cu121
+torchaudio==2.5.1+cu121
+ultralytics @ git+https://github.com/sunsmarterjie/yolov12.git
+opencv-python-headless==4.10.0.84
+numpy==1.26.4
+pandas==2.3.3
+supervision==0.26.1
+
+# ---------- Flask Web Framework ----------
+Flask==3.1.2
+Werkzeug==3.1.3
+itsdangerous==2.2.0
+click==8.3.0
+Jinja2==3.1.6
+flask-cors==4.0.0
+
+# ---------- Notifications & Utilities ----------
+requests==2.32.3
+python-dotenv==1.0.1
+tqdm==4.67.1
+PyYAML==6.0.2
+huggingface_hub==0.24.6

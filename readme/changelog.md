@@ -1,30 +1,70 @@
-Perfect 🔥 — here’s your clean and professional **`CHANGELOG.md`**, written to match your project’s tone and structure.
-It clearly shows the **evolution from v1 → v2**, making it ideal for GitHub display or internal documentation.
+
 
 ---
 
-## 🧾 PyResearch — Pothole Detection System
+# 🧾 **PyResearch — Pothole Detection System**
 
 ### **Changelog**
 
 ---
 
-### 🧩 **v2 — Hybrid Real-Time GPU Pipeline**
+## 🧩 **v3 — Production-Ready YOLOv12 System**
+
+**Release Date:** *Dec 2025*
+**Core Model:** YOLOv12 (best.pt)
+
+### ✨ **Major Enhancements**
+
+* 🧱 **Stabilized Real-Time Engine** — Complete backend rewrite using a production-safe worker thread + non-blocking frame queues.
+* 💾 **Guaranteed CSV Generation** — CSV file is always produced, even if *zero* detections are found.
+* 📦 **ZIP Report Packaging** — Automatically creates a ZIP containing the processed video + CSV.
+* 🌐 **Background-Safe URL Handling** — Eliminates Flask context errors using a thread-safe absolute URL builder.
+* 🧠 **YOLOv12 Robustness Update** — Improved compatibility for different YOLO output formats; safer extraction of boxes & confidence.
+* 📈 **Real-Time Performance Metrics** — Accurate `processing FPS`, `video FPS`, and `ETA` reported live.
+* 🎥 **Smoother Streaming** — Lower latency, frame skip support, and stable MJPEG pipeline during long video processing.
+* 🧮 **Extended Log Details** — Logs now include frame timestamps, severity, area (m²), and processed-time metadata.
+* 📨 **Notification Support** — Optional email and webhook alerts when reports finish generating.
+* 🧹 **Auto-Cleanup System** — Automatically trims old uploads, reports, and archives.
+* ⚙️ **Backend–Frontend Split** — Clear folder separation for deployment:
+
+  * `/backend` → Flask + YOLO
+  * `/frontend` → Dashboard UI
+* ⚡ **One-Click Automation Scripts Added**
+
+  * `setup.bat` — Automatically sets up environment + installs dependencies
+  * `run.bat` — Launches backend + frontend + browser in one click
+
+---
+
+### ⚡ **Performance Gains**
+
+| Metric            | v2                     | v3                               |
+| ----------------- | ---------------------- | -------------------------------- |
+| Report Generation | CSV only (conditional) | CSV + ZIP (always generated)     |
+| Backend Stability | High                   | Very High (production-safe)      |
+| Stream Smoothness | Smooth                 | Ultra-smooth (no queue blocking) |
+| Error Handling    | Limited                | Robust recovery & isolation      |
+| Deployment        | Manual                 | Automated (setup.bat + run.bat)  |
+
+---
+
+## 🧩 **v2 — Hybrid Real-Time GPU Pipeline**
 
 **Release Date:** *Nov 09, 2025*
 **Core Model:** YOLOv12 (best.pt)
 
-#### ✨ Major Enhancements
+### ✨ Major Enhancements
 
-* 🚀 **Hybrid Streaming Pipeline** — Combines batch GPU inference with smooth, continuous frame streaming (no pauses).
-* ⚙️ **GPU Acceleration** — Automatic CUDA + cuDNN optimization; CPU fallback available.
-* 📊 **Live Dashboard Upgrade** — Added `Video FPS`, `Processing FPS`, `Speed %`, and `ETA` with real-time color indicators.
-* 🔁 **Multi-Run Session Handling** — Each upload now resets state safely (multiple videos can be processed in one session).
-* 💾 **Enhanced Logging System** — Accurate frame-by-frame detection logs with confidence, area, and severity level.
-* 📤 **CSV Export Feature** — Instant export of detection data with timestamped filenames.
-* 🎯 **Accuracy Preserved** — Speed improved by up to 40% with zero loss in detection reliability.
+* 🚀 Hybrid GPU streaming pipeline (smooth playback).
+* ⚙️ CUDA acceleration with CPU fallback.
+* 📊 Live dashboard with FPS, Speed%, ETA.
+* 🔁 Multi-video processing without restart.
+* 💾 Improved logging + CSV export.
+* 🎯 Up to 40% faster detection with full accuracy.
 
-#### ⚡ Performance Gains
+---
+
+### ⚡ Performance Gains
 
 | Metric               | v1       | v2                    |
 | -------------------- | -------- | --------------------- |
@@ -35,49 +75,42 @@ It clearly shows the **evolution from v1 → v2**, making it ideal for GitHub di
 
 ---
 
-### 🧠 **v1 — Base Real-Time Detection System**
+## 🧠 **v1 — Base Real-Time Detection System**
 
 **Release Date:** *Oct 2025*
 **Core Model:** YOLOv12 (best.pt)
 
-#### 🧩 Initial Features
+### 🧩 Initial Features
 
-* 🎥 Real-time detection using YOLOv12 on uploaded videos.
-* 🧮 Live metrics: detection count, total area (m²), and average confidence.
-* 💻 Frame-by-frame inference using OpenCV (single-threaded).
-* 🧱 Flask-based dashboard with blue UI theme and basic statistics panel.
-* 📂 Organized folder system (`uploads`, `templates`, `reports`).
+* 🎥 Real-time pothole detection using YOLOv12.
+* 🧮 Live metrics: count, area, confidence.
+* 💻 OpenCV frame-by-frame inference.
+* 🧱 Basic Flask dashboard.
+* 📂 Simple folder structure.
 
-#### 🧩 Known Limitations
+### 🧩 Known Limitations
 
-* ❗ Limited FPS on CPU (4–8 FPS).
-* ⚠️ Occasional stutter between frames (non-smooth rendering).
-* 🔁 Could only process one video per session.
-* ❌ No live ETA or speed percentage metrics.
-
----
-
-### 🧭 **Version Summary**
-
-| Version | Focus                                  | Performance | Accuracy | Stability |
-| ------- | -------------------------------------- | ----------- | -------- | --------- |
-| **v1**  | Baseline YOLOv12 Integration           | 🟡 Medium   | 🟢 High  | 🟡 Medium |
-| **v2**  | Hybrid GPU + Smooth Real-Time Pipeline | 🟢 High     | 🟢 High  | 🟢 High   |
+* ❗ Low FPS on CPU.
+* ⚠️ Frame stutter during streaming.
+* 🔁 Single-run only.
+* ❌ No ETA / Processing FPS indicators.
 
 ---
 
-### 🔮 Next Planned Version (v3 — under research)
+## 🧭 **Version Summary**
 
-* 🚘 Real-time **object tracking** & path persistence.
-* 📈 Optional **model ensemble** for enhanced confidence scoring.
-* 💬 Improved UI (graph view for FPS & detection trends).
-* 🧠 ONNX / TensorRT deployment option for ultra-fast edge performance.
+| Version | Focus                                     | Performance    | Accuracy | Stability      |
+| ------- | ----------------------------------------- | -------------- | -------- | -------------- |
+| **v1**  | Baseline YOLOv12 System                   | 🟡 Medium      | 🟢 High  | 🟡 Medium      |
+| **v2**  | Hybrid GPU + Smooth Real-Time Pipeline    | 🟢 High        | 🟢 High  | 🟢 High        |
+| **v3**  | Production Build + Automation + Reporting | 🟢🟢 Very High | 🟢 High  | 🟢🟢 Very High |
+
+---
+
+## 🏁 **Current Status**
+
+> ✅ **v3 is the recommended production version** with stable backend, guaranteed reporting, smooth streaming, and one-click automation.
+> 💡 Ideal setup: *Python 3.11 + CUDA 12.x + RTX GPU (optional)*.
 
 ---
 
-### 🏁 Status
-
-> ✅ **v2 is stable and production-ready** for local and GPU-enabled systems.
-> 💡 Recommended configuration: *Python 3.11 + CUDA 12.x + RTX GPU (4GB+).*
-
----
