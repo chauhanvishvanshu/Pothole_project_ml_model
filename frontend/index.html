@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>PyResearch - Pothole Detection Dashboard</title>
+  <title>Pothole Detection Dashboard</title>
 
   <style>
     :root {
@@ -27,9 +27,6 @@
       text-align: center;
       box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12);
     }
-    .header h1 { margin: 0; font-size: 1.6rem; }
-    .header p { margin: 4px 0 0; font-size: 0.95rem; opacity: 0.95; }
-
     .container {
       max-width: 1280px;
       margin: 26px auto;
@@ -38,10 +35,8 @@
       gap: 20px;
       flex-wrap: wrap;
     }
-
     .left { flex: 2; min-width: 320px; }
     .right { flex: 1; min-width: 280px; align-self: flex-start; }
-
     .card {
       background: var(--card);
       border-radius: 10px;
@@ -49,9 +44,7 @@
       box-shadow: 0 6px 18px rgba(15, 15, 15, 0.06);
       border: 1px solid var(--blue);
     }
-
     .upload { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
-    .upload input[type=file] { flex: 1; }
     .btn {
       background: var(--blue);
       color: #fff;
@@ -61,22 +54,12 @@
       cursor: pointer;
       font-weight: 600;
     }
-
     .btn.export { background: var(--success); }
-
-    .video {
-      width: 100%;
-      border-radius: 8px;
-      border: 3px solid var(--blue);
-      overflow: hidden;
-      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
-    }
+    .video { width: 100%; border-radius: 8px; border: 3px solid var(--blue); overflow: hidden; }
     .video img { display: block; width: 100%; height: auto; }
-
     .stats-list { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
     .stat { background: #f8f9fa; padding: 10px; border-radius: 8px; font-size: 0.98rem; }
     .stat strong { display: inline-block; width: 150px; color: #111; }
-
     footer {
       margin-top: 28px;
       background: var(--blue);
@@ -84,17 +67,15 @@
       padding: 12px;
       text-align: center;
       border-radius: 8px;
-      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
     }
-
     #eta { font-weight: 700; color: var(--blue); }
   </style>
 </head>
 
 <body>
   <header class="header">
-    <h1>PyResearch — Pothole Detection</h1>
-    <p>Real-time YOLOv12 detection • Flask + YOLOv12 backend</p>
+    <h1>Pothole Detection</h1>
+    <p>Real-time YOLOv12 detection • Multi-session Backend</p>
   </header>
 
   <main class="container">
@@ -106,7 +87,7 @@
         </form>
 
         <div class="video">
-          <img id="videoFeed" src="" alt="Video feed" />
+          <img id="videoFeed" src="" alt="Video feed" onerror="retryStream()" />
         </div>
       </div>
     </section>
@@ -114,6 +95,7 @@
     <aside class="right">
       <div class="card">
         <h2 style="color:var(--blue);margin:0 0 10px">Live Statistics</h2>
+
         <div class="stats-list">
           <div class="stat"><strong>Status:</strong> <span id="status">Idle</span></div>
           <div class="stat"><strong>Detections:</strong> <span id="detection-count">0</span></div>
@@ -123,130 +105,155 @@
           <div class="stat"><strong>Processing FPS:</strong> <span id="proc-fps">0.00</span></div>
           <div class="stat"><strong>ETA:</strong> <span id="eta">--:--</span></div>
         </div>
-        <div style="display:flex;gap:8px;margin-top:12px;">
-          <a id="manualExport" class="btn export" href="#" target="_blank">Export CSV</a>
-          <a id="downloadArchive" class="btn" href="#" style="background:#666;" target="_blank">Download Archive</a>
-        </div>
-      </div>
 
-      <div class="card" style="margin-top:14px;">
-        <h3 style="margin:0 0 8px;">Quick Notes</h3>
-        <ul style="margin:0 0 0 18px;padding:0;">
-          <li>Uploads reset between runs (clean state).</li>
-          <li>Processing FPS shows real YOLO inference speed.</li>
-          <li>ETA updates dynamically.</li>
-          <li>CSV logs frame-by-frame detection details.</li>
-        </ul>
+        <div style="display:flex;gap:8px;margin-top:12px;">
+          <a id="manualExport" class="btn export" href="#" style="pointer-events:none;opacity:0.5;" target="_blank">Export CSV</a>
+          <a id="downloadArchive" class="btn" href="#" style="background:#666;pointer-events:none;opacity:0.5;" target="_blank">Download Archive</a>
+        </div>
       </div>
     </aside>
   </main>
 
-  <footer>© 2025 PyResearch · YOLOv12 Pothole Vision System</footer>
+  <footer>© 2025 Pothole Vision System</footer>
 
   <script>
-    // Always point to your backend port (Flask)
-    const backend = "http://127.0.0.1:7860";
+    // --------------------------------------------------------
+    // AUTOMATIC BACKEND DETECTION (Option A)
+    // --------------------------------------------------------
+    function detectBackend() {
+      const host = window.location.hostname;
 
-    const uploadForm = document.getElementById("uploadForm");
-    const videoFeed = document.getElementById("videoFeed");
+      if (host === "localhost" || host === "127.0.0.1" || window.location.protocol === "file:")
+        return "http://127.0.0.1:7860";
+
+      // Netlify, Vercel, or any domain
+      if (host.endsWith(".netlify.app"))
+        return "https://YOUR-HF-SPACE-NAME.hf.space"; // <--- EDIT ONCE ONLY
+
+      // If running *inside* HuggingFace Space frontend:
+      if (host.endsWith(".hf.space"))
+        return window.location.origin;
+
+      return "http://127.0.0.1:7860";
+    }
+
+    const backend = detectBackend();
+    console.log("Using backend:", backend);
+
+    let sessionId = null;
+
     const statusEl = document.getElementById("status");
+    const videoFeed = document.getElementById("videoFeed");
     const manualExport = document.getElementById("manualExport");
     const downloadArchive = document.getElementById("downloadArchive");
 
-    uploadForm.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const fileInput = document.getElementById("videoFile");
-      const file = fileInput.files[0];
-      if (!file) return alert("Please select a video file.");
+    async function fetchJSON(url) {
+      try {
+        const res = await fetch(url, { cache: "no-store" });
+        if (!res.ok) return { error: true };
+        return res.json();
+      } catch {
+        return { error: true };
+      }
+    }
 
-      const formData = new FormData();
-      formData.append("video", file);
+    function safeFixed(v, d=2) {
+      v = Number(v);
+      return isFinite(v) ? v.toFixed(d) : "0.00";
+    }
+
+    function formatETA(s) {
+      if (!s || s < 0) return "--:--";
+      const m = Math.floor(s / 60);
+      const r = Math.floor(s % 60);
+      return `${String(m).padStart(2,'0')}:${String(r).padStart(2,'0')}`;
+    }
+
+    function resetUI() {
+      document.getElementById("detection-count").textContent = "0";
+      document.getElementById("live-area").textContent = "0.00";
+      document.getElementById("avg-conf").textContent = "0.00";
+      document.getElementById("video-fps").textContent = "0.00";
+      document.getElementById("proc-fps").textContent = "0.00";
+      document.getElementById("eta").textContent = "--:--";
+      videoFeed.src = "";
+    }
+
+    function retryStream() {
+      if (sessionId) {
+        videoFeed.src = `${backend}/video_feed/${sessionId}?t=${Date.now()}`;
+      }
+    }
+
+    // ----------------------- UPLOAD HANDLER -----------------------
+    document.getElementById("uploadForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const videoFile = document.getElementById("videoFile").files[0];
+      if (!videoFile) return alert("Please select a video.");
+
+      resetUI();
+
+      manualExport.style.pointerEvents = "none";
+      downloadArchive.style.pointerEvents = "none";
+      manualExport.style.opacity = "0.5";
+      downloadArchive.style.opacity = "0.5";
 
       statusEl.textContent = "Uploading...";
+
+      const fd = new FormData();
+      fd.append("video", videoFile);
+
       try {
-        const res = await fetch(`${backend}/upload`, { method: "POST", body: formData });
+        const res = await fetch(`${backend}/upload`, { method: "POST", body: fd });
         const data = await res.json();
-
-        if (res.ok && data.status === "uploaded") {
-          statusEl.textContent = "Processing...";
-
-          // Show MJPEG stream
-          videoFeed.src = `${backend}/video_feed?${Date.now()}`;
-
-          // Disable export while processing
-          manualExport.href = "#";
-          manualExport.style.pointerEvents = "none";
-          manualExport.style.opacity = "0.6";
-
-          downloadArchive.href = "#";
-          downloadArchive.style.pointerEvents = "none";
-          downloadArchive.style.opacity = "0.6";
-
-        } else {
-          alert("Upload failed: " + JSON.stringify(data));
+        if (!res.ok) {
           statusEl.textContent = "Idle";
+          return alert("Upload failed: " + JSON.stringify(data));
         }
+
+        sessionId = data.session_id;
+        statusEl.textContent = "Processing...";
+
+        retryStream();
       } catch (err) {
         console.error(err);
-        alert("Upload failed. Check backend logs.");
+        alert("Upload failed.");
         statusEl.textContent = "Idle";
       }
     });
 
-    // Helper to fetch JSON safely
-    async function fetchJSON(url) {
-      try {
-        const res = await fetch(url, { cache: "no-store" });
-        return res.ok ? res.json() : null;
-      } catch {
-        return null;
-      }
-    }
-
-    function safeFixed(val, digits=2) {
-      const n = Number(val);
-      return isFinite(n) ? n.toFixed(digits) : (0).toFixed(digits);
-    }
-
-    function formatETA(seconds) {
-      if (seconds === null || seconds === undefined) return "--:--";
-      const s = Number(seconds);
-      if (!isFinite(s) || s <= 0) return "--:--";
-      const m = Math.floor(s / 60);
-      const rem = Math.floor(s % 60);
-      return `${m.toString().padStart(2,"0")}:${rem.toString().padStart(2,"0")}`;
-    }
-
+    // ----------------------- POLLING -----------------------
     async function refreshStats() {
-      const det = await fetchJSON(`${backend}/detection_count`);
-      const prog = await fetchJSON(`${backend}/progress`);
-      const proc = await fetchJSON(`${backend}/processing_status`);
-      const last = await fetchJSON(`${backend}/last_report`);
+      if (!sessionId) return;
 
-      if (det) {
+      const det = await fetchJSON(`${backend}/detection_count/${sessionId}`);
+      if (!det.error) {
         document.getElementById("detection-count").textContent = det.detections ?? 0;
         document.getElementById("live-area").textContent = safeFixed(det.total_area ?? 0);
         document.getElementById("avg-conf").textContent = safeFixed(det.avg_confidence ?? 0);
       }
 
-      if (prog) {
+      const prog = await fetchJSON(`${backend}/progress/${sessionId}`);
+      if (!prog.error) {
         document.getElementById("video-fps").textContent = safeFixed(prog.video_fps ?? 0);
         document.getElementById("proc-fps").textContent = safeFixed(prog.processing_fps ?? 0);
         document.getElementById("eta").textContent = formatETA(prog.estimated_time_left_s);
       }
 
-      if (proc) {
-        document.getElementById("status").textContent = proc.processing ? "Processing..." : "Idle";
+      const proc = await fetchJSON(`${backend}/processing_status/${sessionId}`);
+      if (!proc.error) {
+        statusEl.textContent = proc.processing ? "Processing..." : "Idle";
       }
 
-      if (last && last.csv_url) {
-        manualExport.href = last.csv_url;
+      const last = await fetchJSON(`${backend}/last_report/${sessionId}`);
+      if (!last.error && last.csv_url) {
+        manualExport.href = backend + last.csv_url;
         manualExport.style.pointerEvents = "auto";
         manualExport.style.opacity = "1";
       }
 
-      if (last && last.archive_url) {
-        downloadArchive.href = last.archive_url;
+      if (!last.error && last.archive_url) {
+        downloadArchive.href = backend + last.archive_url;
         downloadArchive.style.pointerEvents = "auto";
         downloadArchive.style.opacity = "1";
       }

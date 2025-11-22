@@ -1,27 +1,32 @@
-# app.py — YOLOv12 Pothole Detection Backend (Fixed, annotated for production)
-# -----------------------------------------------------------------------------
-# NOTES (high-level)
-#  - This file is your original app with only three focused production fixes:
-#       1) Always create a CSV file at end of run (even if no detections).
-#       2) Always create a ZIP archive at end of run (even if CSV empty).
-#       3) Avoid using Flask url_for(_external=True) inside background threads
-#          (it raises RuntimeError when outside a request context). Instead,
-#          build absolute URLs using PUBLIC_HOST (environment) or default host.
-#  - All other code, routes, and behavior are preserved exactly as you provided.
-# -----------------------------------------------------------------------------
-
-from flask import Flask, Response, jsonify, request, send_file, url_for
-from flask_cors import CORS
-import os, time, threading, traceback, csv, io, queue, zipfile, smtplib, json
+#!/usr/bin/env python3
+"""
+app.py — Multi-session Pothole Detection Backend (Flask)
+Improved for robust session lifecycle, CORS-friendly MJPEG streaming,
+processing_fps reporting, and safer cleanup. YOLO logic left intact.
+"""
+import os
+import time
+import uuid
+import threading
+import traceback
+import zipfile
+import csv
+import io
 from datetime import datetime
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-import requests
-from werkzeug.utils import secure_filename
-import cv2
-import numpy as np
+from functools import partial
 
-# ---------- OPTIONAL DEPENDENCIES ----------
+from flask import Flask, jsonify, request, Response, send_file, abort, make_response
+from werkzeug.utils import secure_filename
+from flask_cors import CORS
+
+# Optional heavy deps
+try:
+    import cv2
+    import numpy as np
+except Exception:
+    cv2 = None
+    np = None
+
 try:
     import torch
 except Exception:
@@ -32,60 +37,34 @@ try:
 except Exception:
     YOLO = None
 
-# ---------- CONFIG ----------
-MODEL_PATH = "best.pt"
-UPLOAD_DIR = "uploads"
-REPORT_DIR = "reports"
+# ---------------------------
+# Configuration (tweakable)
+# ---------------------------
+MODEL_PATH = os.environ.get("MODEL_PATH", "best.pt")
+UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "uploads")
+REPORT_DIR = os.environ.get("REPORT_DIR", "reports")
 ARCHIVE_DIR = os.path.join(REPORT_DIR, "archives")
-CONFIDENCE_THRESHOLD = 0.28
-IOU_THRESHOLD = 0.45
-FRAME_WIDTH, FRAME_HEIGHT = 1280, 720
-INFERENCE_SIZE = 960
-PIXELS_PER_METER = 100
 ALLOWED_EXT = {"mp4", "mov", "avi", "mkv", "webm"}
-FRAME_QUEUE_MAX = 6
-RESULT_QUEUE_MAX = 6
-FRAME_SKIP = int(os.environ.get("FRAME_SKIP", 0))  # 0=process all, 1=skip one, etc.
-MAX_FILES_UPLOADS = int(os.environ.get("MAX_FILES_UPLOADS", 10))
-MAX_FILES_REPORTS = int(os.environ.get("MAX_FILES_REPORTS", 10))
-MAX_FILES_ARCHIVES = int(os.environ.get("MAX_FILES_ARCHIVES", 5))
+FRAME_WIDTH = int(os.environ.get("FRAME_WIDTH", 1280))
+FRAME_HEIGHT = int(os.environ.get("FRAME_HEIGHT", 720))
+INFERENCE_SIZE = int(os.environ.get("INFERENCE_SIZE", 960))
+PIXELS_PER_METER = float(os.environ.get("PIXELS_PER_METER", 100))
+CONFIDENCE_THRESHOLD = float(os.environ.get("CONFIDENCE_THRESHOLD", 0.28))
+IOU_THRESHOLD = float(os.environ.get("IOU_THRESHOLD", 0.45))
+FRAME_QUEUE_MAX = int(os.environ.get("FRAME_QUEUE_MAX", 6))
+RESULT_QUEUE_MAX = int(os.environ.get("RESULT_QUEUE_MAX", 6))
+FRAME_SKIP = int(os.environ.get("FRAME_SKIP", 0))  # 0 => process all frames
+MAX_SESSION_COUNT = int(os.environ.get("MAX_SESSION_COUNT", 12))
+MAX_FILES_UPLOADS = int(os.environ.get("MAX_FILES_UPLOADS", 20))
+MAX_FILES_REPORTS = int(os.environ.get("MAX_FILES_REPORTS", 50))
+MAX_FILES_ARCHIVES = int(os.environ.get("MAX_FILES_ARCHIVES", 20))
+SESSION_TTL = int(os.environ.get("SESSION_TTL", 60 * 60 * 3))  # seconds, default 3 hours
 
-# ---------- Notifications ----------
+# Notification (optional)
 NOTIFY_EMAIL = os.environ.get("NOTIFY_EMAIL")
-SMTP_SERVER = os.environ.get("SMTP_SERVER")
-SMTP_PORT = int(os.environ.get("SMTP_PORT", 587))
-SMTP_USER = os.environ.get("SMTP_USER")
-SMTP_PASS = os.environ.get("SMTP_PASS")
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
 
-app = Flask(__name__)
-CORS(app)
-app.config["UPLOAD_FOLDER"] = UPLOAD_DIR
-
-# ---------- STATE ----------
-state_lock = threading.Lock()
-fps_lock = threading.Lock()
-detection_logs = []
-current_video = None
-video_path = None
-video_fps = 0.0
-total_frames = 0
-processed_frames = 0
-processing_fps = 0.0
-processing = False
-frame_q = queue.Queue(maxsize=FRAME_QUEUE_MAX)
-result_q = queue.Queue(maxsize=RESULT_QUEUE_MAX)
-stop_event = threading.Event()
-last_report = {
-    "csv_path": None, "csv_url": None,
-    "archive_path": None, "archive_url": None,
-    "total_detections": 0, "total_area": 0.0,
-    "average_confidence": 0.0, "video_name": None
-}
-
-worker_thread = None  # keep single worker thread reference
-
-# ---------- DEVICE & MODEL ----------
+# Device selection
 FORCE_CPU = os.environ.get("FORCE_CPU", "").lower() in ("1", "true", "yes")
 DEVICE = "cpu"
 USE_CUDA = False
@@ -93,16 +72,76 @@ if not FORCE_CPU and torch is not None and getattr(torch, "cuda", None) is not N
     USE_CUDA = True
     DEVICE = "cuda:0"
 
-print(f"Device → {DEVICE} | FORCE_CPU={FORCE_CPU}")
+# Public host for building absolute links (for background threads)
+PUBLIC_HOST = os.environ.get("PUBLIC_HOST", "").rstrip("/")
 
+# Create app
+app = Flask(__name__)
+# Allow CORS broadly so Netlify or other origins can fetch
+CORS(app, resources={r"/*": {"origins": "*"}})
+
+# Ensure directories
+for d in (UPLOAD_DIR, REPORT_DIR, ARCHIVE_DIR):
+    os.makedirs(d, exist_ok=True)
+
+
+# ---------------------------
+# Utilities
+# ---------------------------
+def allowed_file(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXT
+
+def now_ts():
+    return datetime.now().strftime("%Y%m%d_%H%M%S")
+
+def build_absolute_url(path: str):
+    """
+    Build background-safe absolute URL to a path under the server.
+    If PUBLIC_HOST is provided, use it. Otherwise return relative path.
+    """
+    if not path:
+        return path
+    # ensure leading slash
+    if not path.startswith("/"):
+        path = "/" + path
+    if PUBLIC_HOST:
+        return PUBLIC_HOST.rstrip("/") + path
+    return path  # frontend can prefix backend base if needed
+
+def auto_cleanup(directory, keep):
+    """Keep only the most recent 'keep' files in directory."""
+    try:
+        files = sorted(
+            [os.path.join(directory, f) for f in os.listdir(directory)],
+            key=os.path.getmtime,
+            reverse=True,
+        )
+        for f in files[keep:]:
+            try:
+                os.remove(f)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+def safe_commonpath(base, requested):
+    """Return True if requested is within base directory."""
+    try:
+        return os.path.commonpath([base, requested]) == base
+    except Exception:
+        # fallback conservative: deny
+        return False
+
+# ---------------------------
+# Lightweight YOLO wrapper (unchanged)
+# ---------------------------
 model = None
 if YOLO is None:
-    print("❌ ultralytics not found. Install with `pip install ultralytics`.")
+    print("ultralytics not installed; running in pass-through mode.")
 else:
     try:
-        print("🚀 Loading YOLO model...")
+        print("Loading YOLO model...", MODEL_PATH)
         model = YOLO(MODEL_PATH)
-        # attempt to move model to desired device safely
         try:
             if hasattr(model, "to"):
                 model.to(DEVICE)
@@ -122,753 +161,749 @@ else:
                 model.fuse()
         except Exception:
             pass
-        print("✅ Model ready.")
+        print("Model loaded.")
     except Exception as e:
-        print("⚠️ Failed loading model:", e)
+        print("Failed loading model:", e)
         traceback.print_exc()
         model = None
 
-# ---------- UTILITIES ----------
-def ensure_dirs():
-    for d in [UPLOAD_DIR, REPORT_DIR, ARCHIVE_DIR]:
-        os.makedirs(d, exist_ok=True)
-
-def auto_cleanup(directory, keep):
-    """Keep only the most recent 'keep' files in directory."""
-    try:
-        files = sorted(
-            [os.path.join(directory, f) for f in os.listdir(directory)],
-            key=os.path.getmtime, reverse=True
-        )
-        for f in files[keep:]:
-            try:
-                os.remove(f)
-                print(f"🧹 Deleted old file: {f}")
-            except Exception:
-                pass
-    except Exception as e:
-        print(f"⚠️ Cleanup error in {directory}: {e}")
-
-def allowed_file(filename):
-    return "." in filename and filename.rsplit(".", 1)[-1].lower() in ALLOWED_EXT
-
 def to_numpy(x):
     try:
-        # handle torch tensors
         if hasattr(x, "cpu"):
             return x.cpu().detach().numpy()
         return np.array(x)
     except Exception:
-        return np.array([])
+        try:
+            return np.array(x)
+        except Exception:
+            return None
 
-def get_severity(area_m2):
-    if area_m2 < 0.5:  return "Minor", (0,255,0)
-    elif area_m2 < 1.5: return "Moderate", (0,215,255)
-    elif area_m2 < 3.0: return "Major", (0,140,255)
-    else:               return "Severe", (0,0,255)
-
-def compute_aggregate_from_logs(logs):
-    if not logs: return 0,0.0,0.0
-    total_det=len(logs)
-    total_area=sum(l.get("area_m2",0.0) for l in logs)
-    avg_conf=sum(l.get("confidence",0.0) for l in logs)/total_det
-    return total_det,round(total_area,2),round(avg_conf,3)
-
-def send_email_notification(subject, body):
-    if not (NOTIFY_EMAIL and SMTP_SERVER and SMTP_USER and SMTP_PASS):
-        print("📭 Email not configured; skipping.")
-        return
+def extract_boxes_from_result(r):
     try:
-        msg = MIMEMultipart()
-        msg["From"], msg["To"], msg["Subject"] = SMTP_USER, NOTIFY_EMAIL, subject
-        msg.attach(MIMEText(body, "plain"))
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls()
-            server.login(SMTP_USER, SMTP_PASS)
-            server.sendmail(SMTP_USER, NOTIFY_EMAIL, msg.as_string())
-        print(f"📧 Email sent to {NOTIFY_EMAIL}")
-    except Exception as e:
-        print("⚠️ Email failed:", e)
-
-def send_webhook_notification(data):
-    if not WEBHOOK_URL:
-        return
-    try:
-        r = requests.post(WEBHOOK_URL, json=data, timeout=10)
-        print(f"🔗 Webhook status: {r.status_code}")
-    except Exception as e:
-        print("⚠️ Webhook failed:", e)
-
-def flush_queue(q):
-    try:
-        while True:
-            q.get_nowait()
+        if hasattr(r, "boxes"):
+            return r.boxes
     except Exception:
         pass
-
-# -----------------------------
-# FIXED: background-safe URL builder
-# -----------------------------
-def build_absolute_url(path: str):
-    """
-    Build an absolute URL from a path for use outside request context (background threads).
-    Uses environment variable PUBLIC_HOST if set, otherwise defaults to localhost:7860.
-    Example: build_absolute_url('/reports/file.csv') -> 'http://127.0.0.1:7860/reports/file.csv'
-    """
-    host = os.environ.get("PUBLIC_HOST", "http://127.0.0.1:7860")
-    return host.rstrip("/") + path
-
-# -----------------------------
-# archive creation (unchanged logic, using build_absolute_url)
-# -----------------------------
-def create_archive(video_path_local, csv_path, video_name):
     try:
-        ensure_dirs()
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        zip_name = f"{secure_filename(video_name)}_archive_{ts}.zip"
-        zip_path = os.path.join(ARCHIVE_DIR, zip_name)
-        with zipfile.ZipFile(zip_path, "w") as zf:
-            if os.path.exists(video_path_local):
-                zf.write(video_path_local, os.path.basename(video_path_local))
-            if csv_path and os.path.exists(csv_path):
-                zf.write(csv_path, os.path.basename(csv_path))
-        # Use background-safe URL builder (do not call url_for in background thread)
-        archive_url = build_absolute_url(f"/download_archive/{zip_name}")
-        with state_lock:
-            last_report["archive_path"], last_report["archive_url"] = zip_path, archive_url
-        auto_cleanup(ARCHIVE_DIR, MAX_FILES_ARCHIVES)
-        print(f"📦 Archive created: {zip_path}")
-        # optional notifications
-        body = (f"Pothole detection complete for '{video_name}'.\n\n"
-                f"Detections: {last_report['total_detections']}\n"
-                f"Total Area: {last_report['total_area']} m²\n"
-                f"Average Confidence: {last_report['average_confidence']}\n\n"
-                f"CSV: {last_report['csv_url']}\nZIP: {archive_url}\n")
-        send_email_notification("Pothole Report Ready", body)
-        send_webhook_notification({"event": "report_ready", **last_report})
-    except Exception as e:
-        print("⚠️ Archive creation failed:", e)
-        traceback.print_exc()
-# -----------------------------
-# CSV save (fixed: always create CSV even if zero detections)
-# -----------------------------
-def save_csv_to_disk(video_name):
-    """
-    Save detection logs to a timestamped CSV in REPORT_DIR.
-    FIX: This always creates a CSV file (even when detection_logs is empty),
-    so downstream archive creation and last_report URLs will always be produced.
-    """
-    ensure_dirs()
-    with state_lock:
-        logs_copy = list(detection_logs)
-
-    # --- If no detections, create an empty CSV (header only) instead of skipping ---
-    if not logs_copy:
-        print("⚠️ No detections — creating empty CSV.")
-        logs_copy = []
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_name = secure_filename(video_name)
-    filename = f"{safe_name}_detections_{timestamp}.csv"
-    filepath = os.path.join(REPORT_DIR, filename)
-
+        if isinstance(r, (list, tuple)) and len(r) > 0 and hasattr(r[0], "boxes"):
+            return r[0].boxes
+    except Exception:
+        pass
     try:
-        with open(filepath, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=["frame_number","video_time_s","timestamp","confidence","area_m2","severity"])
-            writer.writeheader()
-            writer.writerows(logs_copy)
+        if hasattr(r, "pred") and len(r.pred) > 0:
+            return r.pred[0]
+    except Exception:
+        pass
+    return []
 
-        # compute aggregates (works with empty list)
-        total_det, total_area, avg_conf = compute_aggregate_from_logs(logs_copy)
 
-        # Build CSV URL using background-safe builder (no url_for here)
-        csv_url = build_absolute_url(f"/reports/{filename}")
+# ---------------------------
+# Session management
+# ---------------------------
+import queue
+sessions = {}
+sessions_lock = threading.Lock()
 
-        with state_lock:
-            last_report.update({
-                "csv_path": filepath,
-                "csv_url": csv_url,
-                "total_detections": total_det,
-                "total_area": total_area,
-                "average_confidence": avg_conf,
-                "video_name": safe_name
-            })
+def create_session_entry(video_path, original_name):
+    sid = uuid.uuid4().hex[:12]
+    entry = {
+        "session_id": sid,
+        "video_path": video_path,
+        "video_name": original_name,
+        "frame_q": queue.Queue(maxsize=FRAME_QUEUE_MAX),
+        "result_q": queue.Queue(maxsize=RESULT_QUEUE_MAX),
+        "stop_event": threading.Event(),
+        "worker": None,
+        "detection_logs": [],
+        "csv_path": None,
+        "csv_url": None,
+        "archive_path": None,
+        "archive_url": None,
+        "total_frames": 0,
+        "processed_frames": 0,
+        "video_fps": 0.0,
+        "processing_fps": 0.0,
+        "created_at": time.time(),
+        "last_activity": time.time(),
+        "streaming": False,
+        "archiving": False
+    }
+    with sessions_lock:
+        # limit sessions
+        if len(sessions) >= MAX_SESSION_COUNT:
+            # remove oldest
+            oldest = sorted(sessions.values(), key=lambda x: x["created_at"])[0]
+            cleanup_session(oldest["session_id"])
+        sessions[sid] = entry
 
-        auto_cleanup(REPORT_DIR, MAX_FILES_REPORTS)
-        print(f"💾 CSV saved: {filepath}")
-        return filepath
+    # start per-session FPS monitor thread
+    def fps_monitor(sid_local):
+        prev = 0
+        while True:
+            time.sleep(1)
+            with sessions_lock:
+                s = sessions.get(sid_local)
+                if not s:
+                    break
+                now = s.get("processed_frames", 0)
+                s["processing_fps"] = now - prev
+                prev = now
+                # update last_activity periodically if processing ongoing
+                if s.get("processed_frames", 0) > 0:
+                    s["last_activity"] = time.time()
+                # stop monitor when no worker and not streaming
+                w = s.get("worker")
+                if (w is None or not w.is_alive()) and not s.get("streaming", False):
+                    # allow final small grace period
+                    # break after a couple of seconds idle
+                    idle_since = time.time() - s.get("last_activity", s.get("created_at", time.time()))
+                    if idle_since > 2:
+                        break
+        # monitor exits
+    t = threading.Thread(target=fps_monitor, args=(sid,), daemon=True)
+    t.start()
 
-    except Exception as e:
-        print("❌ CSV save failed:", e)
-        traceback.print_exc()
-        return None
+    return entry
 
-# ---------- INFERENCE ----------
-def draw_boxes(frame, results, frame_number, video_time):
-    """
-    Robust drawing: handles multiple ultralytics box formats (tensor, numpy) and extracts confidence safely.
-    Returns: (frame_with_boxes, count, total_area_m2, logs_list)
-    """
-    boxes = getattr(results, "boxes", None)
-    if not boxes:
-        return frame, 0, 0.0, []
-    count, total_area, logs = 0, 0.0, []
-    # If boxes is a sequence of box objects (ultralytics), iterate
-    for box in boxes:
+def cleanup_session(sid):
+    """Stop worker and clear queues and remove session record."""
+    with sessions_lock:
+        entry = sessions.get(sid)
+        if not entry:
+            return
         try:
-            # Attempt to extract xyxy coordinates (absolute pixel values)
-            xyxy_arr = None
-            # box.xyxy may be tensor([x1,y1,x2,y2]) OR an array-like; support variants
+            entry["stop_event"].set()
+            # join worker if alive (allow up to 2s)
+            w = entry.get("worker")
+            if w and w.is_alive():
+                w.join(timeout=2.0)
+        except Exception:
+            pass
+
+        try:
+            # flush queues
+            while not entry["frame_q"].empty():
+                entry["frame_q"].get_nowait()
+            while not entry["result_q"].empty():
+                entry["result_q"].get_nowait()
+        except Exception:
+            pass
+
+        # remove record
+        try:
+            del sessions[sid]
+        except Exception:
+            pass
+
+# ---------------------------
+# Drawing + logging
+# ---------------------------
+def get_severity(area_m2):
+    if area_m2 < 0.5:
+        return "Minor"
+    if area_m2 < 1.5:
+        return "Moderate"
+    if area_m2 < 3.0:
+        return "Major"
+    return "Severe"
+
+def draw_boxes_and_log(frame, boxes_obj, frame_number, video_time, conf_thresh=CONFIDENCE_THRESHOLD):
+    logs = []
+    h, w = frame.shape[:2]
+    try:
+        iterable = list(boxes_obj) if boxes_obj is not None else []
+    except Exception:
+        iterable = []
+
+    for box in iterable:
+        try:
+            xyxy = None
             if hasattr(box, "xyxy"):
-                data = box.xyxy
-                # data might be tensor([x1,y1,x2,y2]) or array with shape (1,4)
-                arr = to_numpy(data)
-                if arr.ndim == 2 and arr.shape[0] >= 1:
-                    xyxy_arr = arr[0]
-                elif arr.ndim == 1 and arr.size >= 4:
-                    xyxy_arr = arr[:4]
+                arr = to_numpy(box.xyxy)
+                if arr is not None:
+                    if arr.ndim == 2 and arr.shape[0] >= 1:
+                        xyxy = arr[0]
+                    elif arr.ndim == 1 and arr.size >= 4:
+                        xyxy = arr[:4]
             elif hasattr(box, "xyxyn"):
                 arr = to_numpy(box.xyxyn)
-                if arr.ndim == 2 and arr.shape[0] >= 1:
-                    # normalized coords — convert to pixel coordinates using frame shape
-                    xyxy_n = arr[0]
-                    h, w = frame.shape[:2]
-                    xyxy_arr = np.array([xyxy_n[0]*w, xyxy_n[1]*h, xyxy_n[2]*w, xyxy_n[3]*h])
+                if arr is not None:
+                    if arr.ndim == 2 and arr.shape[0] >= 1:
+                        ncoords = arr[0]
+                        xyxy = np.array([ncoords[0] * w, ncoords[1] * h, ncoords[2] * w, ncoords[3] * h])
             else:
-                # as fallback, try known attributes
                 try:
-                    arr = to_numpy(getattr(box, "xyxy", getattr(box, "coords", np.array([]))))
-                    if arr.size >= 4:
-                        xyxy_arr = arr.flatten()[:4]
+                    arr = to_numpy(box)
+                    if arr is not None and arr.size >= 4:
+                        xyxy = arr.flatten()[:4]
                 except Exception:
-                    xyxy_arr = None
+                    xyxy = None
 
-            if xyxy_arr is None or len(xyxy_arr) < 4:
+            if xyxy is None or len(xyxy) < 4:
+                continue
+            x1, y1, x2, y2 = [int(max(0, v)) for v in xyxy[:4]]
+            if x2 <= x1 or y2 <= y1:
                 continue
 
-            # convert to ints and clamp
-            x1, y1, x2, y2 = [int(max(0, v)) for v in xyxy_arr[:4]]
-
-            # confidence extraction: box.conf or box.confidence or box.conf[0]
             conf = 0.0
-            conf_attr = None
-            for name in ("conf", "confidence", "prob"):
-                if hasattr(box, name):
-                    conf_attr = getattr(box, name)
-                    break
-            if conf_attr is not None:
-                try:
-                    conf_arr = to_numpy(conf_attr)
-                    if conf_arr.size:
-                        conf = float(conf_arr.reshape(-1)[0])
-                    else:
-                        # maybe scalar
-                        conf = float(conf_attr)
-                except Exception:
+            for attr in ("conf", "confidence", "prob"):
+                if hasattr(box, attr):
                     try:
-                        conf = float(conf_attr)
+                        c = to_numpy(getattr(box, attr))
+                        if c is None:
+                            c = float(getattr(box, attr))
+                        else:
+                            c = float(c.reshape(-1)[0])
+                        conf = c
+                        break
                     except Exception:
-                        conf = 0.0
+                        try:
+                            conf = float(getattr(box, attr))
+                            break
+                        except Exception:
+                            pass
 
-            # filter by confidence threshold
-            if conf < CONFIDENCE_THRESHOLD:
+            if conf < conf_thresh:
                 continue
 
-            w, h = x2 - x1, y2 - y1
-            if w <= 0 or h <= 0:
-                continue
-            area_px = w * h
-            # area filters (ignore tiny or huge boxes)
+            wbox = x2 - x1
+            hbox = y2 - y1
+            area_px = wbox * hbox
             if area_px < 800 or area_px > FRAME_WIDTH * FRAME_HEIGHT * 0.35:
                 continue
 
-            ratio = w / (h + 1e-6)
+            ratio = wbox / (hbox + 1e-6)
             if ratio < 0.5 or ratio > 3.8:
                 continue
 
             area_m2 = round(area_px / (PIXELS_PER_METER ** 2), 2)
-            severity, color = get_severity(area_m2)
-            total_area += area_m2
-            count += 1
-            # draw
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-            label = f"{area_m2} m² ({conf:.2f})"
-            cv2.putText(frame, label, (x1, max(12, y1 - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+            severity = get_severity(area_m2)
+
+            color = (0, 140, 255)
+            if severity == "Minor":
+                color = (0, 255, 0)
+            elif severity == "Moderate":
+                color = (0, 215, 255)
+            elif severity == "Major":
+                color = (0, 140, 255)
+            elif severity == "Severe":
+                color = (0, 0, 255)
+
+            try:
+                if cv2 is not None:
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                    label = f"{area_m2}m² {conf:.2f}"
+                    cv2.putText(frame, label, (x1, max(12, y1 - 6)),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+            except Exception:
+                pass
+
             logs.append({
                 "frame_number": int(frame_number),
-                "video_time_s": round(video_time, 2),
+                "video_time_s": round(float(video_time or 0.0), 2),
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "confidence": round(conf, 3),
+                "confidence": round(float(conf), 3),
                 "area_m2": area_m2,
                 "severity": severity
             })
         except Exception:
-            # any single-box failure shouldn't stop overall detection
             traceback.print_exc()
             continue
-    return frame, count, total_area, logs
 
-def infer_worker():
-    """
-    Single worker that reads frames from frame_q, runs model (if any), draws boxes and emits into result_q.
-    Worker exists when stop_event is set.
-    """
-    global processed_frames, worker_thread
-    print(f"🧠 Worker started (device={DEVICE})")
+    return frame, logs
+
+# ---------------------------
+# Worker (per-session)
+# ---------------------------
+def session_infer_worker(sid):
+    with sessions_lock:
+        entry = sessions.get(sid)
+    if not entry:
+        return
+
+    print(f"[{sid}] Worker started (device={DEVICE})")
+    stop_ev = entry["stop_event"]
+    fq = entry["frame_q"]
+    rq = entry["result_q"]
+
     try:
-        while not stop_event.is_set():
+        while not stop_ev.is_set():
             try:
-                fid, frame = frame_q.get(timeout=1)
-            except queue.Empty:
+                fid, frame, video_time = fq.get(timeout=0.5)
+            except Exception:
                 continue
+
+            logs = []
+            out_frame = frame
             try:
                 if model is None:
-                    # pass-through (no inference), send back original frame
                     out_frame = frame
-                    logs = []
                 else:
-                    # run prediction (best-effort compatibility)
+                    r = None
                     try:
-                        results = model.predict(source=frame, conf=CONFIDENCE_THRESHOLD,
-                                                iou=IOU_THRESHOLD, imgsz=INFERENCE_SIZE,
-                                                device=DEVICE, verbose=False)
-                        # predict returns list-like. get first result
-                        if isinstance(results, (list, tuple)) and len(results) > 0:
-                            r = results[0]
-                        else:
-                            r = results
+                        r = model.predict(source=frame, conf=CONFIDENCE_THRESHOLD,
+                                          iou=IOU_THRESHOLD, imgsz=INFERENCE_SIZE,
+                                          device=DEVICE, verbose=False)
                     except Exception:
-                        # fallback to model(frame) if predict signature differs
                         try:
-                            results = model(frame)
-                            if isinstance(results, (list, tuple)) and len(results) > 0:
-                                r = results[0]
-                            else:
-                                r = results
-                        except Exception as e:
-                            print("⚠️ Model inference failed:", e)
+                            r = model(frame)
+                        except Exception:
                             r = None
 
                     if r is None:
                         out_frame = frame
-                        logs = []
                     else:
-                        # draw boxes on a copy of frame to avoid modifying input if reused
+                        boxes = extract_boxes_from_result(r)
                         frame_copy = frame.copy()
-                        out_frame, count, total_area, logs = draw_boxes(frame_copy, r, fid, 0)
-                # append logs
-                if logs:
-                    with state_lock:
-                        detection_logs.extend(logs)
-                with state_lock:
-                    processed_frames += 1
-                # push result (fid,out_frame)
-                try:
-                    result_q.put_nowait((fid, out_frame))
-                except queue.Full:
-                    # drop oldest and push
-                    try:
-                        result_q.get_nowait()
-                        result_q.put_nowait((fid, out_frame))
-                    except Exception:
-                        pass
-            except Exception as e:
-                print("⚠️ Inference loop error:", e)
+                        out_frame, logs = draw_boxes_and_log(frame_copy, boxes, fid, video_time)
+            except Exception:
                 traceback.print_exc()
-    finally:
-        print("🛑 Worker stopped")
-        with state_lock:
-            worker_thread = None
-# ---------------------------------------------------------
-#   FRAME GENERATOR + END-OF-VIDEO REPORT CREATION (FIXED)
-# ---------------------------------------------------------
-def generate_frames():
-    """
-    Streams processed frames to frontend and,
-    when video finishes, ALWAYS:
-        - saves CSV (even empty)
-        - creates ZIP archive (always)
-        - updates last_report with working URLs
-    """
-    global processing, processed_frames, total_frames, video_fps
-    global current_video, worker_thread, frame_q, result_q, video_path
+                out_frame = frame
 
-    if not video_path:
-        print("⚠️ No video selected.")
-        return
+            if logs:
+                with sessions_lock:
+                    s = sessions.get(sid)
+                    if s:
+                        s["detection_logs"].extend(logs)
+                        s["last_activity"] = time.time()
 
-    video_name = os.path.splitext(os.path.basename(video_path))[0]
-
-    # reset previous session
-    with state_lock:
-        detection_logs.clear()
-        current_video = video_name
-
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        print(f"⚠️ Cannot open video: {video_path}")
-        return
-
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
-    video_fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
-    processed_frames = 0
-    stop_event.clear()
-    processing = True
-
-    # ensure a worker thread exists
-    if worker_thread is None or (worker_thread is not None and not worker_thread.is_alive()):
-        with state_lock:
-            worker = threading.Thread(target=infer_worker, daemon=True)
-            worker.start()
-            worker_thread = worker
-
-    frame_no = 0
-
-    try:
-        while cap.isOpened() and not stop_event.is_set():
-            ret, frame = cap.read()
-            if not ret:
-                break
-
-            frame_no += 1
-
-            # frame skipping
-            if FRAME_SKIP > 0 and frame_no % (FRAME_SKIP + 1) != 1:
-                continue
-
-            frame = cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT))
-            video_time = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
+            with sessions_lock:
+                s = sessions.get(sid)
+                if s:
+                    s["processed_frames"] += 1
+                    s["last_activity"] = time.time()
 
             try:
-                frame_q.put_nowait((frame_no, frame))
-            except queue.Full:
+                rq.put_nowait((fid, out_frame))
+            except Exception:
                 try:
-                    frame_q.get_nowait()
-                    frame_q.put_nowait((frame_no, frame))
+                    rq.get_nowait()
+                    rq.put_nowait((fid, out_frame))
                 except Exception:
                     pass
 
-            # fetch latest processed frame
+    finally:
+        print(f"[{sid}] Worker stopped")
+
+# ---------------------------
+# CSV & ZIP saving (per-session)
+# ---------------------------
+def save_csv_for_session(sid):
+    with sessions_lock:
+        s = sessions.get(sid)
+        if not s:
+            return None
+        logs = list(s["detection_logs"])
+        video_name = secure_filename(s.get("video_name") or f"session_{sid}")
+
+    timestamp = now_ts()
+    filename = f"{video_name}_detections_{timestamp}.csv"
+    filepath = os.path.join(REPORT_DIR, filename)
+
+    try:
+        with open(filepath, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=["frame_number", "video_time_s", "timestamp", "confidence", "area_m2", "severity"])
+            writer.writeheader()
+            if logs:
+                writer.writerows(logs)
+
+        total_det = len(logs)
+        total_area = round(sum(l.get("area_m2", 0.0) for l in logs), 2) if logs else 0.0
+        avg_conf = round(sum(l.get("confidence", 0.0) for l in logs) / total_det, 3) if total_det > 0 else 0.0
+        csv_url = build_absolute_url(f"/reports/{os.path.basename(filepath)}")
+
+        with sessions_lock:
+            s = sessions.get(sid)
+            if s:
+                s["csv_path"] = filepath
+                s["csv_url"] = csv_url
+                s["total_detections"] = total_det
+                s["total_area"] = total_area
+                s["average_confidence"] = avg_conf
+                s["last_activity"] = time.time()
+
+        auto_cleanup(REPORT_DIR, MAX_FILES_REPORTS)
+        print(f"[{sid}] CSV saved: {filepath}")
+        return filepath
+    except Exception:
+        traceback.print_exc()
+        return None
+
+def create_archive_for_session(sid):
+    # mark archiving state
+    with sessions_lock:
+        s = sessions.get(sid)
+        if not s:
+            return None
+        s["archiving"] = True
+
+    try:
+        # brief wait for CSV to be available
+        time.sleep(0.5)
+
+        with sessions_lock:
+            s = sessions.get(sid)
+            if not s:
+                return None
+            video_path = s.get("video_path")
+            video_name = secure_filename(s.get("video_name") or f"session_{sid}")
+            csv_path = s.get("csv_path")
+
+        ts = now_ts()
+        zip_name = f"{video_name}_archive_{ts}.zip"
+        zip_path = os.path.join(ARCHIVE_DIR, zip_name)
+
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            if video_path and os.path.exists(video_path):
+                zf.write(video_path, os.path.basename(video_path))
+            if csv_path and os.path.exists(csv_path):
+                zf.write(csv_path, os.path.basename(csv_path))
+
+        archive_url = build_absolute_url(f"/download_archive/{os.path.basename(zip_path)}")
+        with sessions_lock:
+            s = sessions.get(sid)
+            if s:
+                s["archive_path"] = zip_path
+                s["archive_url"] = archive_url
+                s["last_activity"] = time.time()
+
+        auto_cleanup(ARCHIVE_DIR, MAX_FILES_ARCHIVES)
+        print(f"[{sid}] Archive created: {zip_path}")
+        return zip_path
+    except Exception:
+        traceback.print_exc()
+        return None
+    finally:
+        with sessions_lock:
+            s = sessions.get(sid)
+            if s:
+                s["archiving"] = False
+
+# ---------------------------
+# Video frame generator (per session)
+# ---------------------------
+def mjpeg_stream_for_session(sid):
+    with sessions_lock:
+        s = sessions.get(sid)
+        if not s:
+            yield b''
+            return
+
+    video_path = s["video_path"]
+    if not os.path.exists(video_path):
+        yield b''
+        return
+
+    cap = None
+    try:
+        if cv2 is None:
+            print("OpenCV not available; cannot stream video.")
+            return
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            print(f"Cannot open video: {video_path}")
+            return
+
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
+        with sessions_lock:
+            s = sessions.get(sid)
+            if s:
+                s["total_frames"] = total_frames
+                s["video_fps"] = cap.get(cv2.CAP_PROP_FPS) or 0.0
+                s["streaming"] = True
+                s["last_activity"] = time.time()
+
+        # ensure worker exists
+        with sessions_lock:
+            s = sessions.get(sid)
+            if not s:
+                return
+            if s.get("worker") is None or not s.get("worker").is_alive():
+                w = threading.Thread(target=session_infer_worker, args=(sid,), daemon=True)
+                s["worker"] = w
+                w.start()
+
+        frame_no = 0
+        last_sent_frame = None
+        start_t = time.time()
+        while cap.isOpened() and not s["stop_event"].is_set():
+            ret, frame = cap.read()
+            if not ret:
+                break
+            frame_no += 1
+
+            if FRAME_SKIP > 0 and (frame_no % (FRAME_SKIP + 1)) != 1:
+                continue
+
+            try:
+                frame = cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT))
+            except Exception:
+                pass
+
+            video_time = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
+
+            # enqueue frame
+            try:
+                s["frame_q"].put_nowait((frame_no, frame, video_time))
+            except Exception:
+                try:
+                    s["frame_q"].get_nowait()
+                    s["frame_q"].put_nowait((frame_no, frame, video_time))
+                except Exception:
+                    pass
+
             out = frame
             try:
-                fid_out = result_q.get(timeout=0.5)
-                if fid_out is not None:
+                fid_out = s["result_q"].get(timeout=0.05)
+                if fid_out:
                     _, out = fid_out
                     if out is None:
                         out = frame
-            except queue.Empty:
-                out = frame
+            except Exception:
+                if last_sent_frame is not None:
+                    out = last_sent_frame
+                else:
+                    out = frame
 
-            # JPEG encode
             try:
                 ret2, buf = cv2.imencode(".jpg", out)
                 if not ret2:
                     continue
-                yield (
+                mjpeg_frame = (
                     b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
                     + buf.tobytes()
                     + b"\r\n"
                 )
+                last_sent_frame = out
+                yield mjpeg_frame
             except Exception:
                 traceback.print_exc()
                 continue
 
+            # update activity
+            with sessions_lock:
+                s = sessions.get(sid)
+                if s:
+                    s["last_activity"] = time.time()
+
             time.sleep(0.002)
 
     finally:
-        cap.release()
+        try:
+            if cap:
+                cap.release()
+        except Exception:
+            pass
 
-        # -------------------------------
-        # SAVE CSV (always)
-        # -------------------------------
-        csv_path = save_csv_to_disk(video_name)
+        # finalized: video ended or stop_event set
+        # always create CSV and ZIP (CSV first, then archive in background)
+        try:
+            save_csv_for_session(sid)
+            # run archive creation in background thread
+            threading.Thread(target=create_archive_for_session, args=(sid,), daemon=True).start()
+        except Exception:
+            traceback.print_exc()
 
-        if csv_path is None:
-            # fallback attempt (should not happen)
-            csv_path = save_csv_to_disk(video_name)
+        with sessions_lock:
+            s = sessions.get(sid)
+            if s:
+                s["streaming"] = False
+                s["last_activity"] = time.time()
 
-        # --------------------------------------
-        # CREATE ZIP ARCHIVE (always)
-        # --------------------------------------
-        threading.Thread(
-            target=create_archive,
-            args=(video_path, csv_path, video_name),
-            daemon=True,
-        ).start()
+        print(f"[{sid}] Streaming finished.")
 
-        stop_event.set()
-        processing = False
-
-        print(f"✅ Completed {video_name}")
-
-
-# ---------------------------------------------------------
-#                     ROUTES
-# ---------------------------------------------------------
+# ---------------------------
+# Routes
+# ---------------------------
 @app.route("/")
 def index():
-    return jsonify({
-        "status": "ok",
-        "message": "Pothole Detection Backend (YOLOv12 + Flask) running."
-    })
-
-@app.route("/ping")
-def ping():
-    return jsonify({"status": "ok"})
-
-@app.route("/device_info")
-def device_info():
-    return jsonify({
-        "device": DEVICE,
-        "gpu": USE_CUDA,
-        "frame_skip": FRAME_SKIP,
-        "force_cpu": FORCE_CPU
-    })
+    return jsonify({"status": "ok", "message": "Pothole Detection Backend (Multi-session) running."})
 
 @app.route("/upload", methods=["POST"])
-def upload_video():
-    """
-    Handles safe upload + resets worker state properly before starting a new video.
-    """
-    global video_path, processed_frames, processing, frame_q, result_q, stop_event
-
-    if "video" not in request.files or request.files["video"].filename == "":
-        return jsonify({"error": "No file"}), 400
-
+def upload():
+    if "video" not in request.files:
+        return jsonify({"error": "No file 'video' in request"}), 400
     f = request.files["video"]
+    if f.filename == "":
+        return jsonify({"error": "Empty filename"}), 400
     if not allowed_file(f.filename):
         return jsonify({"error": "Invalid file type"}), 400
 
-    ensure_dirs()
-
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
     filename = secure_filename(f.filename)
     path = os.path.join(UPLOAD_DIR, filename)
-
     if os.path.exists(path):
         base, ext = os.path.splitext(filename)
         filename = f"{base}_{int(time.time())}{ext}"
         path = os.path.join(UPLOAD_DIR, filename)
 
-    # clean old session
-    try:
-        stop_event.set()
-        time.sleep(0.05)
-
-        flush_queue(frame_q)
-        flush_queue(result_q)
-
-        frame_q = queue.Queue(maxsize=FRAME_QUEUE_MAX)
-        result_q = queue.Queue(maxsize=RESULT_QUEUE_MAX)
-
-        stop_event.clear()
-    except Exception:
-        pass
-
-    # save file
     f.save(path)
-    video_path = path
 
-    with state_lock:
-        detection_logs.clear()
+    entry = create_session_entry(path, f.filename)
+    sid = entry["session_id"]
 
-    processed_frames = 0
-    processing = False
+    print(f"[{sid}] Uploaded {path}")
+    # schedule cleanup of old uploads
+    threading.Thread(target=lambda: auto_cleanup(UPLOAD_DIR, MAX_FILES_UPLOADS), daemon=True).start()
 
-    print(f"📂 Video uploaded: {path}")
+    return jsonify({"status": "uploaded", "session_id": sid, "video_name": f.filename})
 
-    return jsonify({"status": "uploaded", "path": path})
+@app.route("/video_feed/<sid>")
+def video_feed(sid):
+    with sessions_lock:
+        if sid not in sessions:
+            return jsonify({"error": "Invalid session id"}), 404
 
+    # Return MJPEG stream with permissive CORS header so remote frontends can render it in <img>
+    response = Response(mjpeg_stream_for_session(sid), mimetype="multipart/x-mixed-replace; boundary=frame")
+    # Add CORS header explicitly for image streaming
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return response
 
-@app.route("/video_feed")
-def video_feed():
-    if not video_path or not os.path.exists(video_path):
-        return jsonify({"error": "No video uploaded"}), 404
+@app.route("/progress/<sid>")
+def progress(sid):
+    with sessions_lock:
+        s = sessions.get(sid)
+        if not s:
+            return jsonify({"error": "Invalid session id"}), 404
+        proc = s.get("processed_frames", 0)
+        total = s.get("total_frames", 0)
+        fps = s.get("processing_fps", 0.0)
+        video_fps = s.get("video_fps", 0.0)
 
-    return Response(
-        generate_frames(),
-        mimetype="multipart/x-mixed-replace; boundary=frame",
-    )
-
-
-@app.route("/detection_count")
-def detection_count():
-    with state_lock:
-        det = len(detection_logs)
-        total_area = round(sum(l.get("area_m2", 0.0) for l in detection_logs), 2) if detection_logs else 0.0
-        avg = round(sum(l.get("confidence", 0.0) for l in detection_logs) / det, 3) if det > 0 else 0.0
-
-    return jsonify({
-        "detections": det,
-        "total_area": total_area,
-        "avg_confidence": avg
-    })
-
-
-@app.route("/progress")
-def progress():
-    with fps_lock:
-        proc = processed_frames
-        fps = processing_fps
-
-    progress_pct = (proc / total_frames * 100) if total_frames > 0 else 0.0
-    eta = (total_frames - proc) / (fps + 1e-4) if fps > 0 else None
+    progress_pct = (proc / total * 100.0) if total > 0 else 0.0
+    eta = None
+    if fps and fps > 0:
+        eta = (total - proc) / (fps + 1e-6)
 
     return jsonify({
         "processed_frames": int(proc),
-        "total_frames": int(total_frames),
+        "total_frames": int(total),
         "progress_percent": round(progress_pct, 2),
         "video_fps": round(video_fps, 2),
         "processing_fps": round(fps, 2),
         "estimated_time_left_s": round(eta, 1) if eta is not None else None
     })
 
+@app.route("/detection_count/<sid>")
+def detection_count(sid):
+    with sessions_lock:
+        s = sessions.get(sid)
+        if not s:
+            return jsonify({"error": "Invalid session id"}), 404
+        logs = list(s.get("detection_logs", []))
 
-@app.route("/processing_status")
-def processing_status():
+    det = len(logs)
+    total_area = round(sum(l.get("area_m2", 0.0) for l in logs), 2) if logs else 0.0
+    avg = round(sum(l.get("confidence", 0.0) for l in logs) / det, 3) if det > 0 else 0.0
+
+    return jsonify({"detections": det, "total_area": total_area, "avg_confidence": avg})
+
+@app.route("/processing_status/<sid>")
+def processing_status(sid):
+    with sessions_lock:
+        s = sessions.get(sid)
+        if not s:
+            return jsonify({"error": "Invalid session id"}), 404
+        # consider processing active if worker alive OR streaming is True OR archiving is True
+        processing = bool((s.get("worker") and s.get("worker").is_alive()) or s.get("streaming") or s.get("archiving"))
     return jsonify({"processing": processing})
 
-
-@app.route("/last_report")
-def last_report_route():
-    with state_lock:
-        if not last_report.get("csv_path"):
+@app.route("/last_report/<sid>")
+def last_report(sid):
+    with sessions_lock:
+        s = sessions.get(sid)
+        if not s:
+            return jsonify({"error": "Invalid session id"}), 404
+        if not s.get("csv_path"):
             return jsonify({"error": "No report yet"}), 404
-        return jsonify(last_report)
-
+        return jsonify({
+            "csv_path": s.get("csv_path"),
+            "csv_url": s.get("csv_url"),
+            "archive_path": s.get("archive_path"),
+            "archive_url": s.get("archive_url"),
+            "total_detections": s.get("total_detections", 0),
+            "total_area": s.get("total_area", 0.0),
+            "average_confidence": s.get("average_confidence", 0.0),
+            "video_name": s.get("video_name")
+        })
 
 @app.route("/reports/<path:filename>")
 def serve_report(filename):
     requested = os.path.abspath(os.path.join(REPORT_DIR, filename))
     base = os.path.abspath(REPORT_DIR)
-
-    # security: ensure path containment
-    try:
-        if os.path.commonpath([base, requested]) != base:
-            return "Forbidden", 403
-    except Exception:
+    if not safe_commonpath(base, requested):
         return "Forbidden", 403
-
     if not os.path.exists(requested):
         return "Not found", 404
+    return send_file(requested, mimetype="text/csv", as_attachment=True, download_name=os.path.basename(requested))
 
-    return send_file(
-        requested,
-        mimetype="text/csv",
-        as_attachment=True,
-        download_name=os.path.basename(requested),
-    )
-
-
-@app.route("/export_csv")
-def export_csv():
-    with state_lock:
-        logs = list(detection_logs)
-        last_csv = last_report.get("csv_path")
+@app.route("/export_csv/<sid>")
+def export_csv(sid):
+    with sessions_lock:
+        s = sessions.get(sid)
+        if not s:
+            return jsonify({"error": "Invalid session id"}), 404
+        logs = list(s.get("detection_logs", []))
+        csv_path = s.get("csv_path")
 
     if logs:
-        video_name = current_video or "session"
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{secure_filename(video_name)}_detections_{ts}.csv"
-
         output = io.StringIO()
-        writer = csv.DictWriter(output, fieldnames=[
-            "frame_number","video_time_s","timestamp",
-            "confidence","area_m2","severity"
-        ])
+        writer = csv.DictWriter(output, fieldnames=["frame_number","video_time_s","timestamp","confidence","area_m2","severity"])
         writer.writeheader()
         writer.writerows(logs)
         output.seek(0)
-
-        return send_file(
-            io.BytesIO(output.getvalue().encode()),
-            mimetype="text/csv",
-            as_attachment=True,
-            download_name=filename,
-        )
-
-    elif last_csv and os.path.exists(last_csv):
-        return send_file(
-            last_csv,
-            mimetype="text/csv",
-            as_attachment=True,
-            download_name=os.path.basename(last_csv),
-        )
-
+        fname = f"{secure_filename(s.get('video_name') or sid)}_detections_{now_ts()}.csv"
+        return send_file(io.BytesIO(output.getvalue().encode()), mimetype="text/csv", as_attachment=True, download_name=fname)
+    elif csv_path and os.path.exists(csv_path):
+        return send_file(csv_path, mimetype="text/csv", as_attachment=True, download_name=os.path.basename(csv_path))
     return "No detections yet.", 404
-
 
 @app.route("/download_archive/<path:filename>")
 def download_archive(filename):
     requested = os.path.abspath(os.path.join(ARCHIVE_DIR, filename))
     base = os.path.abspath(ARCHIVE_DIR)
-
-    try:
-        if os.path.commonpath([base, requested]) != base:
-            return "Forbidden", 403
-    except Exception:
+    if not safe_commonpath(base, requested):
         return "Forbidden", 403
-
     if not os.path.exists(requested):
         return "Not found", 404
-
-    return send_file(
-        requested,
-        mimetype="application/zip",
-        as_attachment=True,
-        download_name=os.path.basename(requested),
-    )
-
+    return send_file(requested, mimetype="application/zip", as_attachment=True, download_name=os.path.basename(requested))
 
 @app.route("/health")
 def health():
-    with state_lock:
-        det = len(detection_logs)
-        avg_conf = round(sum(l.get("confidence", 0.0) for l in detection_logs) / det, 3) if det > 0 else 0.0
-        csv_ready = bool(last_report.get("csv_path"))
-        archive_ready = bool(last_report.get("archive_path"))
+    with sessions_lock:
+        active = len(sessions)
+    return jsonify({"device": DEVICE, "gpu": USE_CUDA, "active_sessions": active})
 
-    with fps_lock:
-        fps = processing_fps
+# ---------------------------
+# Background housekeeping: prune idle sessions
+# ---------------------------
+def session_ttl_pruner():
+    while True:
+        time.sleep(60)
+        now = time.time()
+        with sessions_lock:
+            to_remove = []
+            for sid, s in list(sessions.items()):
+                idle = now - s.get("last_activity", s.get("created_at", now))
+                if idle > SESSION_TTL:
+                    to_remove.append(sid)
+            for sid in to_remove:
+                print(f"[{sid}] TTL exceeded, cleaning up session.")
+                cleanup_session(sid)
 
-    return jsonify({
-        "device": DEVICE,
-        "gpu": USE_CUDA,
-        "frame_skip": FRAME_SKIP,
-        "processing": processing,
-        "detections": det,
-        "avg_conf": avg_conf,
-        "fps": fps,
-        "current_video": current_video,
-        "csv_ready": csv_ready,
-        "csv": last_report.get("csv_url"),
-        "archive_ready": archive_ready,
-        "archive": last_report.get("archive_url")
-    })
-
-
-# ---------------------------------------------------------
-#                     STARTUP
-# ---------------------------------------------------------
+# ---------------------------
+# Startup helpers
+# ---------------------------
 if __name__ == "__main__":
-    ensure_dirs()
-
+    # housekeeping threads
     threading.Thread(target=lambda: auto_cleanup(UPLOAD_DIR, MAX_FILES_UPLOADS), daemon=True).start()
     threading.Thread(target=lambda: auto_cleanup(REPORT_DIR, MAX_FILES_REPORTS), daemon=True).start()
     threading.Thread(target=lambda: auto_cleanup(ARCHIVE_DIR, MAX_FILES_ARCHIVES), daemon=True).start()
-
-    def fps_monitor():
-        global processed_frames, processing_fps
-        prev = processed_frames
-        while True:
-            time.sleep(1)
-            now = processed_frames
-            with fps_lock:
-                processing_fps = now - prev
-            prev = now
-
-    threading.Thread(target=fps_monitor, daemon=True).start()
+    threading.Thread(target=session_ttl_pruner, daemon=True).start()
 
     port = int(os.environ.get("PORT", 7860))
-    print(f"🚀 Flask running on port {port} (device={DEVICE}, FRAME_SKIP={FRAME_SKIP})")
-
-    app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
+    host = "0.0.0.0"
+    print(f"Starting Flask on {host}:{port} (device={DEVICE})")
+    app.run(host=host, port=port, debug=False, threaded=True)
