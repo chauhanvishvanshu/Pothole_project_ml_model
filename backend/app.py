@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 app.py — Multi-session Pothole Detection Backend (Flask)
-Improved for robust session lifecycle, CORS-friendly MJPEG streaming,
-processing_fps reporting, and safer cleanup. YOLO logic left intact.
+Updated with Ultralytics YOLO Tracking (ByteTrack/BoT-SORT) to prevent duplicate counting.
+Includes Session Memory to track unique IDs.
 """
 import os
 import time
@@ -47,7 +47,7 @@ ARCHIVE_DIR = os.path.join(REPORT_DIR, "archives")
 ALLOWED_EXT = {"mp4", "mov", "avi", "mkv", "webm"}
 FRAME_WIDTH = int(os.environ.get("FRAME_WIDTH", 1280))
 FRAME_HEIGHT = int(os.environ.get("FRAME_HEIGHT", 720))
-INFERENCE_SIZE = int(os.environ.get("INFERENCE_SIZE", 960))
+INFERENCE_SIZE = int(os.environ.get("INFERENCE_SIZE", 960)) # 640 is standard for YOLO
 PIXELS_PER_METER = float(os.environ.get("PIXELS_PER_METER", 100))
 CONFIDENCE_THRESHOLD = float(os.environ.get("CONFIDENCE_THRESHOLD", 0.28))
 IOU_THRESHOLD = float(os.environ.get("IOU_THRESHOLD", 0.45))
@@ -133,7 +133,7 @@ def safe_commonpath(base, requested):
         return False
 
 # ---------------------------
-# Lightweight YOLO wrapper (unchanged)
+# Lightweight YOLO wrapper
 # ---------------------------
 model = None
 if YOLO is None:
@@ -215,6 +215,10 @@ def create_session_entry(video_path, original_name):
         "stop_event": threading.Event(),
         "worker": None,
         "detection_logs": [],
+        
+        # --- NEW: Memory for Tracking IDs ---
+        "seen_ids": set(), 
+        
         "csv_path": None,
         "csv_url": None,
         "archive_path": None,
@@ -296,7 +300,7 @@ def cleanup_session(sid):
             pass
 
 # ---------------------------
-# Drawing + logging
+# Drawing + logging (UPDATED FOR TRACKING)
 # ---------------------------
 def get_severity(area_m2):
     if area_m2 < 0.5:
@@ -307,71 +311,61 @@ def get_severity(area_m2):
         return "Major"
     return "Severe"
 
-def draw_boxes_and_log(frame, boxes_obj, frame_number, video_time, conf_thresh=CONFIDENCE_THRESHOLD):
+def draw_boxes_and_log(frame, boxes_obj, frame_number, video_time, seen_ids_set, conf_thresh=CONFIDENCE_THRESHOLD):
+    """
+    Draws boxes and IDs. 
+    Only logs to the CSV list if the ID is NEW (not in seen_ids_set).
+    Visual colors remain based on severity for good UX.
+    """
     logs = []
     h, w = frame.shape[:2]
+    
+    if boxes_obj is None:
+        return frame, logs
+
+    # Iterate over boxes
     try:
-        iterable = list(boxes_obj) if boxes_obj is not None else []
-    except Exception:
-        iterable = []
+        # Convert to list if iterable
+        iterable = boxes_obj if isinstance(boxes_obj, (list, tuple)) else list(boxes_obj)
+    except:
+        return frame, logs
 
     for box in iterable:
         try:
-            xyxy = None
-            if hasattr(box, "xyxy"):
-                arr = to_numpy(box.xyxy)
-                if arr is not None:
-                    if arr.ndim == 2 and arr.shape[0] >= 1:
-                        xyxy = arr[0]
-                    elif arr.ndim == 1 and arr.size >= 4:
-                        xyxy = arr[:4]
-            elif hasattr(box, "xyxyn"):
-                arr = to_numpy(box.xyxyn)
-                if arr is not None:
-                    if arr.ndim == 2 and arr.shape[0] >= 1:
-                        ncoords = arr[0]
-                        xyxy = np.array([ncoords[0] * w, ncoords[1] * h, ncoords[2] * w, ncoords[3] * h])
-            else:
-                try:
-                    arr = to_numpy(box)
-                    if arr is not None and arr.size >= 4:
-                        xyxy = arr.flatten()[:4]
-                except Exception:
-                    xyxy = None
+            # 1. Get Tracking ID
+            track_id = None
+            if hasattr(box, 'id') and box.id is not None:
+                track_id = int(box.id.item())
 
-            if xyxy is None or len(xyxy) < 4:
-                continue
-            x1, y1, x2, y2 = [int(max(0, v)) for v in xyxy[:4]]
-            if x2 <= x1 or y2 <= y1:
-                continue
-
+            # 2. Get Confidence
             conf = 0.0
-            for attr in ("conf", "confidence", "prob"):
-                if hasattr(box, attr):
-                    try:
-                        c = to_numpy(getattr(box, attr))
-                        if c is None:
-                            c = float(getattr(box, attr))
-                        else:
-                            c = float(c.reshape(-1)[0])
-                        conf = c
-                        break
-                    except Exception:
-                        try:
-                            conf = float(getattr(box, attr))
-                            break
-                        except Exception:
-                            pass
-
+            if hasattr(box, 'conf'):
+                 conf = float(box.conf[0].cpu().numpy())
             if conf < conf_thresh:
                 continue
 
+            # 3. Get Coordinates
+            xyxy = None
+            if hasattr(box, "xyxy"):
+                arr = to_numpy(box.xyxy)
+                if arr is not None and len(arr) > 0:
+                     xyxy = arr[0] if arr.ndim == 2 else arr
+            
+            if xyxy is None or len(xyxy) < 4:
+                continue
+
+            x1, y1, x2, y2 = [int(v) for v in xyxy[:4]]
+            
+            # 4. Calculate Area
             wbox = x2 - x1
             hbox = y2 - y1
             area_px = wbox * hbox
-            if area_px < 800 or area_px > FRAME_WIDTH * FRAME_HEIGHT * 0.35:
+            
+            # Filter noise
+            if area_px < 800 or area_px > (w * h * 0.35):
                 continue
-
+            
+            # Filter aspect ratio
             ratio = wbox / (hbox + 1e-6)
             if ratio < 0.5 or ratio > 3.8:
                 continue
@@ -379,35 +373,47 @@ def draw_boxes_and_log(frame, boxes_obj, frame_number, video_time, conf_thresh=C
             area_m2 = round(area_px / (PIXELS_PER_METER ** 2), 2)
             severity = get_severity(area_m2)
 
-            color = (0, 140, 255)
-            if severity == "Minor":
-                color = (0, 255, 0)
-            elif severity == "Moderate":
-                color = (0, 215, 255)
-            elif severity == "Major":
-                color = (0, 140, 255)
-            elif severity == "Severe":
-                color = (0, 0, 255)
+            # 5. Color Logic (Based on Severity for UX)
+            color = (0, 140, 255) # Orange default
+            if severity == "Minor": color = (0, 255, 0)       # Green
+            elif severity == "Moderate": color = (0, 215, 255) # Cyan/Yellow
+            elif severity == "Major": color = (0, 140, 255)    # Orange
+            elif severity == "Severe": color = (0, 0, 255)     # Red
 
-            try:
-                if cv2 is not None:
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-                    label = f"{area_m2}m² {conf:.2f}"
-                    cv2.putText(frame, label, (x1, max(12, y1 - 6)),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-            except Exception:
+            # 6. Logging Logic (Only if NEW ID)
+            if track_id is not None:
+                if track_id not in seen_ids_set:
+                    # NEW DETECTION
+                    seen_ids_set.add(track_id)
+                    logs.append({
+                        "frame_number": int(frame_number),
+                        "video_time_s": round(float(video_time or 0.0), 2),
+                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "confidence": round(conf, 3),
+                        "area_m2": area_m2,
+                        "severity": severity,
+                        "track_id": track_id
+                    })
+                # If ID is in set, we skip logging, but we still draw below
+            else:
+                # Fallback if tracking fails (no ID), optional log
                 pass
 
-            logs.append({
-                "frame_number": int(frame_number),
-                "video_time_s": round(float(video_time or 0.0), 2),
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "confidence": round(float(conf), 3),
-                "area_m2": area_m2,
-                "severity": severity
-            })
+            # 7. Draw Visuals (Always draw for UX)
+            if cv2 is not None:
+                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                
+                # Label with ID
+                label = f"ID:{track_id} | {area_m2}m2" if track_id is not None else f"{area_m2}m2"
+                
+                # Text Background
+                (w_text, h_text), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+                cv2.rectangle(frame, (x1, y1 - 20), (x1 + w_text, y1), color, -1)
+                cv2.putText(frame, label, (x1, y1 - 5), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
         except Exception:
-            traceback.print_exc()
+            # traceback.print_exc()
             continue
 
     return frame, logs
@@ -425,6 +431,9 @@ def session_infer_worker(sid):
     stop_ev = entry["stop_event"]
     fq = entry["frame_q"]
     rq = entry["result_q"]
+    
+    # Get reference to this session's memory
+    current_seen_ids = entry["seen_ids"]
 
     try:
         while not stop_ev.is_set():
@@ -441,11 +450,17 @@ def session_infer_worker(sid):
                 else:
                     r = None
                     try:
-                        r = model.predict(source=frame, conf=CONFIDENCE_THRESHOLD,
-                                          iou=IOU_THRESHOLD, imgsz=INFERENCE_SIZE,
-                                          device=DEVICE, verbose=False)
+                        # --- UPDATED: Use model.track() with persist=True ---
+                        r = model.track(source=frame, 
+                                      persist=True,  # Critical for tracking IDs
+                                      conf=CONFIDENCE_THRESHOLD,
+                                      iou=IOU_THRESHOLD, 
+                                      imgsz=INFERENCE_SIZE,
+                                      device=DEVICE, 
+                                      verbose=False)
                     except Exception:
                         try:
+                            # Fallback to simple predict if track fails
                             r = model(frame)
                         except Exception:
                             r = None
@@ -455,7 +470,8 @@ def session_infer_worker(sid):
                     else:
                         boxes = extract_boxes_from_result(r)
                         frame_copy = frame.copy()
-                        out_frame, logs = draw_boxes_and_log(frame_copy, boxes, fid, video_time)
+                        # Pass seen_ids to drawing function
+                        out_frame, logs = draw_boxes_and_log(frame_copy, boxes, fid, video_time, current_seen_ids)
             except Exception:
                 traceback.print_exc()
                 out_frame = frame
@@ -502,7 +518,8 @@ def save_csv_for_session(sid):
 
     try:
         with open(filepath, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=["frame_number", "video_time_s", "timestamp", "confidence", "area_m2", "severity"])
+            # Added 'track_id' to CSV columns
+            writer = csv.DictWriter(f, fieldnames=["frame_number", "video_time_s", "timestamp", "confidence", "area_m2", "severity", "track_id"])
             writer.writeheader()
             if logs:
                 writer.writerows(logs)
@@ -850,7 +867,8 @@ def export_csv(sid):
 
     if logs:
         output = io.StringIO()
-        writer = csv.DictWriter(output, fieldnames=["frame_number","video_time_s","timestamp","confidence","area_m2","severity"])
+        # Updated fieldnames to include track_id
+        writer = csv.DictWriter(output, fieldnames=["frame_number","video_time_s","timestamp","confidence","area_m2","severity", "track_id"])
         writer.writeheader()
         writer.writerows(logs)
         output.seek(0)
