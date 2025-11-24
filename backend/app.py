@@ -44,6 +44,9 @@ MODEL_PATH = os.environ.get("MODEL_PATH", "best.pt")
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "uploads")
 REPORT_DIR = os.environ.get("REPORT_DIR", "reports")
 ARCHIVE_DIR = os.path.join(REPORT_DIR, "archives")
+# --- NEW: Directory for saving snapshots ---
+SNAPSHOT_DIR = os.path.join(REPORT_DIR, "snapshots")
+# -------------------------------------------
 ALLOWED_EXT = {"mp4", "mov", "avi", "mkv", "webm"}
 FRAME_WIDTH = int(os.environ.get("FRAME_WIDTH", 1280))
 FRAME_HEIGHT = int(os.environ.get("FRAME_HEIGHT", 720))
@@ -81,7 +84,7 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 # Ensure directories
-for d in (UPLOAD_DIR, REPORT_DIR, ARCHIVE_DIR):
+for d in (UPLOAD_DIR, REPORT_DIR, ARCHIVE_DIR, SNAPSHOT_DIR): # Added SNAPSHOT_DIR here
     os.makedirs(d, exist_ok=True)
 
 
@@ -206,6 +209,12 @@ sessions_lock = threading.Lock()
 
 def create_session_entry(video_path, original_name):
     sid = uuid.uuid4().hex[:12]
+    
+    # --- NEW: Create per-session snapshot directory ---
+    session_snapshot_dir = os.path.join(SNAPSHOT_DIR, sid)
+    os.makedirs(session_snapshot_dir, exist_ok=True)
+    # --------------------------------------------------
+
     entry = {
         "session_id": sid,
         "video_path": video_path,
@@ -216,8 +225,10 @@ def create_session_entry(video_path, original_name):
         "worker": None,
         "detection_logs": [],
         
-        # --- NEW: Memory for Tracking IDs ---
+        # --- NEW: Memory for Tracking IDs & Path for Snapshots ---
         "seen_ids": set(), 
+        "snapshot_dir": session_snapshot_dir,
+        # ---------------------------------------------------------
         
         "csv_path": None,
         "csv_url": None,
@@ -311,15 +322,23 @@ def get_severity(area_m2):
         return "Major"
     return "Severe"
 
-def draw_boxes_and_log(frame, boxes_obj, frame_number, video_time, seen_ids_set, conf_thresh=CONFIDENCE_THRESHOLD):
+# --- UPDATED SIGNATURE: Added snapshot_dir argument ---
+def draw_boxes_and_log(frame, boxes_obj, frame_number, video_time, seen_ids_set, snapshot_dir, conf_thresh=CONFIDENCE_THRESHOLD):
     """
     Draws boxes and IDs. 
     Only logs to the CSV list if the ID is NEW (not in seen_ids_set).
+    Saves a snapshot image when a NEW ID is detected.
     Visual colors remain based on severity for good UX.
     """
     logs = []
     h, w = frame.shape[:2]
     
+    # 1. Take a clean copy of the frame for snapshots
+    # (Taaki snapshot me purane drawings mix na ho, aur sirf relevant box dikhe)
+    orig_frame_clean = None
+    if cv2 is not None:
+        orig_frame_clean = frame.copy()
+
     if boxes_obj is None:
         return frame, logs
 
@@ -385,6 +404,31 @@ def draw_boxes_and_log(frame, boxes_obj, frame_number, video_time, seen_ids_set,
                 if track_id not in seen_ids_set:
                     # NEW DETECTION
                     seen_ids_set.add(track_id)
+
+                    # --- NEW: Save Snapshot (With Explicit Drawing) ---
+                    snapshot_filename = f"frame_{frame_number}_id_{track_id}.jpg"
+                    snapshot_path = os.path.join(snapshot_dir, snapshot_filename)
+                    try:
+                        if cv2 is not None and orig_frame_clean is not None:
+                            # Clean frame ki copy lo
+                            snap_img = orig_frame_clean.copy()
+                            
+                            # Us par sirf ye wala box aur ID draw karo
+                            cv2.rectangle(snap_img, (x1, y1), (x2, y2), color, 2)
+                            
+                            label_snap = f"ID:{track_id} | {area_m2}m2"
+                            (w_t, h_t), _ = cv2.getTextSize(label_snap, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+                            cv2.rectangle(snap_img, (x1, y1 - 20), (x1 + w_t, y1), color, -1)
+                            cv2.putText(snap_img, label_snap, (x1, y1 - 5), 
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+                            # Ab save karo (Perfect Match Guaranteed)
+                            cv2.imwrite(snapshot_path, snap_img)
+                    except Exception as e:
+                        print(f"Error saving snapshot: {e}")
+                        snapshot_filename = "error_saving.jpg"
+                    # --------------------------
+
                     logs.append({
                         "frame_number": int(frame_number),
                         "video_time_s": round(float(video_time or 0.0), 2),
@@ -392,14 +436,14 @@ def draw_boxes_and_log(frame, boxes_obj, frame_number, video_time, seen_ids_set,
                         "confidence": round(conf, 3),
                         "area_m2": area_m2,
                         "severity": severity,
-                        "track_id": track_id
+                        "track_id": track_id,
+                        "snapshot_file": snapshot_filename
                     })
-                # If ID is in set, we skip logging, but we still draw below
+                # If ID is in set, we skip logging
             else:
-                # Fallback if tracking fails (no ID), optional log
                 pass
 
-            # 7. Draw Visuals (Always draw for UX)
+            # 7. Draw Visuals on MAIN Video Frame (Always draw for UX)
             if cv2 is not None:
                 cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
                 
@@ -432,8 +476,9 @@ def session_infer_worker(sid):
     fq = entry["frame_q"]
     rq = entry["result_q"]
     
-    # Get reference to this session's memory
+    # Get reference to this session's memory and snapshot path
     current_seen_ids = entry["seen_ids"]
+    current_snapshot_dir = entry["snapshot_dir"]
 
     try:
         while not stop_ev.is_set():
@@ -470,8 +515,8 @@ def session_infer_worker(sid):
                     else:
                         boxes = extract_boxes_from_result(r)
                         frame_copy = frame.copy()
-                        # Pass seen_ids to drawing function
-                        out_frame, logs = draw_boxes_and_log(frame_copy, boxes, fid, video_time, current_seen_ids)
+                        # Pass seen_ids and snapshot_dir to drawing function
+                        out_frame, logs = draw_boxes_and_log(frame_copy, boxes, fid, video_time, current_seen_ids, current_snapshot_dir)
             except Exception:
                 traceback.print_exc()
                 out_frame = frame
@@ -518,8 +563,8 @@ def save_csv_for_session(sid):
 
     try:
         with open(filepath, "w", newline="", encoding="utf-8") as f:
-            # Added 'track_id' to CSV columns
-            writer = csv.DictWriter(f, fieldnames=["frame_number", "video_time_s", "timestamp", "confidence", "area_m2", "severity", "track_id"])
+            # Added 'track_id' and 'snapshot_file' to CSV columns
+            writer = csv.DictWriter(f, fieldnames=["frame_number", "video_time_s", "timestamp", "confidence", "area_m2", "severity", "track_id", "snapshot_file"])
             writer.writeheader()
             if logs:
                 writer.writerows(logs)
@@ -565,6 +610,8 @@ def create_archive_for_session(sid):
             video_path = s.get("video_path")
             video_name = secure_filename(s.get("video_name") or f"session_{sid}")
             csv_path = s.get("csv_path")
+            # Get session snapshot directory info
+            snap_dir = s.get("snapshot_dir")
 
         ts = now_ts()
         zip_name = f"{video_name}_archive_{ts}.zip"
@@ -575,6 +622,16 @@ def create_archive_for_session(sid):
                 zf.write(video_path, os.path.basename(video_path))
             if csv_path and os.path.exists(csv_path):
                 zf.write(csv_path, os.path.basename(csv_path))
+            
+            # --- NEW: Add snapshots to ZIP ---
+            if snap_dir and os.path.exists(snap_dir):
+                for root, dirs, files in os.walk(snap_dir):
+                    for file in files:
+                        if file.lower().endswith(('.jpg', '.jpeg', '.png')):
+                            file_path = os.path.join(root, file)
+                            # Add file to zip inside a 'snapshots' folder
+                            zf.write(file_path, os.path.join("snapshots", file))
+            # ---------------------------------
 
         archive_url = build_absolute_url(f"/download_archive/{os.path.basename(zip_path)}")
         with sessions_lock:
@@ -867,8 +924,8 @@ def export_csv(sid):
 
     if logs:
         output = io.StringIO()
-        # Updated fieldnames to include track_id
-        writer = csv.DictWriter(output, fieldnames=["frame_number","video_time_s","timestamp","confidence","area_m2","severity", "track_id"])
+        # Updated fieldnames to include track_id and snapshot_file
+        writer = csv.DictWriter(output, fieldnames=["frame_number","video_time_s","timestamp","confidence","area_m2","severity", "track_id", "snapshot_file"])
         writer.writeheader()
         writer.writerows(logs)
         output.seek(0)
@@ -919,6 +976,8 @@ if __name__ == "__main__":
     threading.Thread(target=lambda: auto_cleanup(UPLOAD_DIR, MAX_FILES_UPLOADS), daemon=True).start()
     threading.Thread(target=lambda: auto_cleanup(REPORT_DIR, MAX_FILES_REPORTS), daemon=True).start()
     threading.Thread(target=lambda: auto_cleanup(ARCHIVE_DIR, MAX_FILES_ARCHIVES), daemon=True).start()
+    # Cleanup snapshot directory too
+    threading.Thread(target=lambda: auto_cleanup(SNAPSHOT_DIR, MAX_FILES_REPORTS), daemon=True).start() 
     threading.Thread(target=session_ttl_pruner, daemon=True).start()
 
     port = int(os.environ.get("PORT", 7860))
