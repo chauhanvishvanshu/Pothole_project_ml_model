@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 app.py — Multi-session Pothole Detection Backend (Flask)
-INTEGRATED: Working Snapshot Logic + Robust GPS (GPX) Support + Fixed UI Data
+COMPLETE SUITE: Tracking + Snapshots + GPS + PDF Reports + KML Map Export.
 """
 import os
 import time
@@ -38,8 +38,21 @@ try:
 except Exception:
     YOLO = None
 
+# --- ReportLab for PDF Generation ---
+try:
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RLImage, Table, TableStyle
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib.units import inch
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    print("ReportLab not installed. PDF generation disabled. (pip install reportlab)")
+    REPORTLAB_AVAILABLE = False
+# -----------------------------------------
+
 # ---------------------------
-# Configuration (tweakable)
+# Configuration
 # ---------------------------
 MODEL_PATH = os.environ.get("MODEL_PATH", "best.pt")
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "uploads")
@@ -50,7 +63,7 @@ SNAPSHOT_DIR = os.path.join(REPORT_DIR, "snapshots")
 ALLOWED_EXT = {"mp4", "mov", "avi", "mkv", "webm"}
 FRAME_WIDTH = int(os.environ.get("FRAME_WIDTH", 1280))
 FRAME_HEIGHT = int(os.environ.get("FRAME_HEIGHT", 720))
-INFERENCE_SIZE = int(os.environ.get("INFERENCE_SIZE", 960)) # 640 is standard for YOLO
+INFERENCE_SIZE = int(os.environ.get("INFERENCE_SIZE", 960))
 PIXELS_PER_METER = float(os.environ.get("PIXELS_PER_METER", 100))
 CONFIDENCE_THRESHOLD = float(os.environ.get("CONFIDENCE_THRESHOLD", 0.28))
 IOU_THRESHOLD = float(os.environ.get("IOU_THRESHOLD", 0.45))
@@ -63,22 +76,18 @@ MAX_FILES_REPORTS = int(os.environ.get("MAX_FILES_REPORTS", 50))
 MAX_FILES_ARCHIVES = int(os.environ.get("MAX_FILES_ARCHIVES", 20))
 SESSION_TTL = int(os.environ.get("SESSION_TTL", 60 * 60 * 3))
 
-# Device selection
-FORCE_CPU = os.environ.get("FORCE_CPU", "").lower() in ("1", "true", "yes")
 DEVICE = "cpu"
 USE_CUDA = False
+FORCE_CPU = os.environ.get("FORCE_CPU", "").lower() in ("1", "true", "yes")
 if not FORCE_CPU and torch is not None and getattr(torch, "cuda", None) is not None and torch.cuda.is_available():
     USE_CUDA = True
     DEVICE = "cuda:0"
 
-# Public host for building absolute links
 PUBLIC_HOST = os.environ.get("PUBLIC_HOST", "").rstrip("/")
 
-# Create app
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-# Ensure directories
 for d in (UPLOAD_DIR, REPORT_DIR, ARCHIVE_DIR, SNAPSHOT_DIR):
     os.makedirs(d, exist_ok=True)
 
@@ -135,7 +144,7 @@ def extract_boxes_from_result(r):
     return []
 
 # ---------------------------
-# GPX / GPS Handler (Robust)
+# GPS Handlers
 # ---------------------------
 class GPXHandler:
     def __init__(self, gpx_path):
@@ -151,7 +160,6 @@ class GPXHandler:
         try:
             tree = ET.parse(gpx_path)
             root = tree.getroot()
-            # Support with and without namespace
             trkpts = root.findall(".//{http://www.topografix.com/GPX/1/1}trkpt")
             if not trkpts: trkpts = root.findall(".//trkpt")
 
@@ -166,7 +174,6 @@ class GPXHandler:
                     if time_elem is not None and time_elem.text:
                         t_str = time_elem.text
                         dt = None
-                        # Basic ISO8601 parsing
                         try:
                             clean_ts = t_str.replace("Z", "").split(".")[0]
                             dt = datetime.strptime(clean_ts, "%Y-%m-%dT%H:%M:%S")
@@ -187,10 +194,8 @@ class GPXHandler:
 
     def get_location_at(self, video_time_s):
         if not self.valid or not self.points: return None, None
-        # Boundary checks
         if video_time_s <= self.points[0][0]: return self.points[0][1], self.points[0][2]
         if video_time_s >= self.points[-1][0]: return self.points[-1][1], self.points[-1][2]
-        # Linear search
         for i in range(len(self.points) - 1):
             t1, lat1, lon1 = self.points[i]
             t2, lat2, lon2 = self.points[i+1]
@@ -200,6 +205,34 @@ class GPXHandler:
                 lon = lon1 + (lon2 - lon1) * ratio
                 return round(lat, 6), round(lon, 6)
         return None, None
+
+class LinearGPSHandler:
+    def __init__(self, start_coords, end_coords, total_duration_s):
+        self.valid = False
+        self.start_lat = 0.0
+        self.start_lon = 0.0
+        self.end_lat = 0.0
+        self.end_lon = 0.0
+        self.duration = float(total_duration_s) if total_duration_s else 0.0
+
+        try:
+            if start_coords and end_coords and self.duration > 0:
+                s_lat, s_lon = map(float, start_coords.split(','))
+                e_lat, e_lon = map(float, end_coords.split(','))
+                self.start_lat, self.start_lon = s_lat, s_lon
+                self.end_lat, self.end_lon = e_lat, e_lon
+                self.valid = True
+                print(f"Linear GPS Initialized.")
+        except Exception as e:
+            print(f"Linear GPS Init Failed: {e}")
+
+    def get_location_at(self, video_time_s):
+        if not self.valid: return None, None
+        t = max(0.0, min(video_time_s, self.duration))
+        progress = t / self.duration
+        curr_lat = self.start_lat + (self.end_lat - self.start_lat) * progress
+        curr_lon = self.start_lon + (self.end_lon - self.start_lon) * progress
+        return round(curr_lat, 6), round(curr_lon, 6)
 
 # ---------------------------
 # Lightweight YOLO wrapper
@@ -226,7 +259,7 @@ import queue
 sessions = {}
 sessions_lock = threading.Lock()
 
-def create_session_entry(video_path, original_name):
+def create_session_entry(video_path, original_name, start_coords=None, end_coords=None):
     sid = uuid.uuid4().hex[:12]
     
     session_snapshot_dir = os.path.join(SNAPSHOT_DIR, sid)
@@ -245,7 +278,9 @@ def create_session_entry(video_path, original_name):
     entry = {
         "session_id": sid,
         "video_path": video_path,
-        "gpx_path": gpx_path, # Store path
+        "gpx_path": gpx_path, 
+        "start_coords": start_coords,
+        "end_coords": end_coords,
         "video_name": original_name,
         "frame_q": queue.Queue(maxsize=FRAME_QUEUE_MAX),
         "result_q": queue.Queue(maxsize=RESULT_QUEUE_MAX),
@@ -254,10 +289,15 @@ def create_session_entry(video_path, original_name):
         "detection_logs": [],
         "seen_ids": set(),
         "snapshot_dir": session_snapshot_dir,
+        
         "csv_path": None, "csv_url": None,
+        "pdf_path": None, "pdf_url": None,
+        "kml_path": None, "kml_url": None, # NEW: KML Fields
         "archive_path": None, "archive_url": None,
+        
         "total_frames": 0, "processed_frames": 0,
         "video_fps": 0.0, "processing_fps": 0.0,
+        "duration_s": 0.0,
         "created_at": time.time(), "last_activity": time.time(),
         "streaming": False, "archiving": False
     }
@@ -420,11 +460,18 @@ def session_infer_worker(sid):
     rq = entry["result_q"]
     current_seen_ids = entry["seen_ids"]
     current_snapshot_dir = entry["snapshot_dir"]
+    
     gpx_path = entry.get("gpx_path")
+    start_coords = entry.get("start_coords")
+    end_coords = entry.get("end_coords")
+    duration = entry.get("duration_s", 0.0)
 
-    # Init GPS
-    gps_handler = None
-    try: gps_handler = GPXHandler(gpx_path)
+    gps_provider = None
+    try: 
+        if gpx_path:
+            gps_provider = GPXHandler(gpx_path)
+        elif start_coords and end_coords:
+            gps_provider = LinearGPSHandler(start_coords, end_coords, duration)
     except: pass
 
     try:
@@ -449,10 +496,9 @@ def session_infer_worker(sid):
                         boxes = extract_boxes_from_result(r)
                         frame_copy = frame.copy()
                         
-                        # Get GPS
                         lat, lon = (None, None)
-                        if gps_handler:
-                            try: lat, lon = gps_handler.get_location_at(video_time)
+                        if gps_provider:
+                            try: lat, lon = gps_provider.get_location_at(video_time)
                             except: pass
 
                         out_frame, logs = draw_boxes_and_log(
@@ -485,6 +531,149 @@ def session_infer_worker(sid):
         print(f"[{sid}] Worker stopped")
 
 # ---------------------------
+# Generate Reports (PDF + KML)
+# ---------------------------
+def generate_pdf_report(sid):
+    if not REPORTLAB_AVAILABLE: return None
+    with sessions_lock:
+        s = sessions.get(sid)
+        if not s: return None
+        logs = list(s["detection_logs"])
+        video_name = s.get("video_name") or f"Session {sid}"
+        snap_dir = s.get("snapshot_dir")
+
+    timestamp = now_ts()
+    filename = f"{secure_filename(video_name)}_report_{timestamp}.pdf"
+    pdf_path = os.path.join(REPORT_DIR, filename)
+
+    try:
+        doc = SimpleDocTemplate(pdf_path, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=18)
+        styles = getSampleStyleSheet()
+        story = []
+        story.append(Paragraph("Road Watch - Pothole Detection Report", styles['Title']))
+        story.append(Spacer(1, 12))
+        story.append(Paragraph(f"<b>Video:</b> {video_name}", styles['Normal']))
+        story.append(Paragraph(f"<b>Date:</b> {datetime.now().strftime('%Y-%m-%d %H:%M')}", styles['Normal']))
+        story.append(Paragraph(f"<b>Total Detections:</b> {len(logs)}", styles['Normal']))
+        story.append(Spacer(1, 12))
+
+        if logs:
+            counts = {"Minor":0,"Moderate":0,"Major":0,"Severe":0}
+            for l in logs:
+                sev = l.get("severity","Minor")
+                if sev in counts: counts[sev]+=1
+            data = [["Severity", "Count"]] + [[k, str(v)] for k,v in counts.items()]
+            t = Table(data, colWidths=[200, 100])
+            t.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.grey),('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),('GRID',(0,0),(-1,-1),1,colors.black)]))
+            story.append(t)
+            story.append(Spacer(1, 20))
+
+        for log in logs:
+            tid = log.get("track_id","N/A")
+            sev = log.get("severity","N/A")
+            area = log.get("area_m2",0)
+            ts = log.get("video_time_s",0)
+            lat = log.get("latitude")
+            lon = log.get("longitude")
+            snap = log.get("snapshot_file")
+            
+            txt = f"<b>ID:</b> {tid} &nbsp; <b>Time:</b> {ts}s &nbsp; <b>Sev:</b> {sev} &nbsp; <b>Area:</b> {area}m2<br/>"
+            if lat and lon: txt += f"<b>GPS:</b> {lat}, {lon}<br/>"
+            
+            p = Paragraph(txt, styles['Normal'])
+            img_flow = None
+            if snap and snap_dir:
+                fp = os.path.join(snap_dir, snap)
+                if os.path.exists(fp):
+                    try:
+                        img = RLImage(fp)
+                        img.drawHeight = 2.5*inch * (img.imageHeight/img.imageWidth)
+                        img.drawWidth = 2.5*inch
+                        img_flow = img
+                    except: pass
+            
+            if img_flow:
+                story.append(Table([[p], [img_flow]], colWidths=[450]))
+            else:
+                story.append(p)
+            story.append(Spacer(1, 10))
+            story.append(Paragraph("_"*60, styles['Normal']))
+            story.append(Spacer(1, 10))
+
+        doc.build(story)
+        with sessions_lock:
+            s = sessions.get(sid)
+            if s:
+                s["pdf_path"] = pdf_path
+                s["pdf_url"] = build_absolute_url(f"/reports/{filename}")
+        return pdf_path
+    except: return None
+
+# --- NEW: Generate KML for Google Earth ---
+def generate_kml_report(sid):
+    with sessions_lock:
+        s = sessions.get(sid)
+        if not s: return None
+        logs = list(s["detection_logs"])
+        video_name = s.get("video_name") or f"Session {sid}"
+
+    # Filter logs that have valid GPS
+    gps_logs = [l for l in logs if l.get("latitude") and l.get("longitude")]
+    if not gps_logs:
+        return None # No GPS data to map
+
+    timestamp = now_ts()
+    filename = f"{secure_filename(video_name)}_map_{timestamp}.kml"
+    kml_path = os.path.join(REPORT_DIR, filename)
+
+    try:
+        # Basic KML Structure
+        kml_content = [
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            '<kml xmlns="http://www.opengis.net/kml/2.2">',
+            '<Document>',
+            f'<name>Potholes: {video_name}</name>',
+            '<Style id="potholeStyle">',
+            ' <IconStyle><scale>1.1</scale><Icon><href>http://maps.google.com/mapfiles/kml/paddle/red-circle.png</href></Icon></IconStyle>',
+            '</Style>'
+        ]
+
+        for log in gps_logs:
+            lat = log["latitude"]
+            lon = log["longitude"]
+            tid = log["track_id"]
+            sev = log["severity"]
+            area = log["area_m2"]
+            
+            kml_content.append('<Placemark>')
+            kml_content.append(f'<name>Pothole #{tid}</name>')
+            kml_content.append(f'<description>Severity: {sev}\nArea: {area} m2</description>')
+            kml_content.append('<styleUrl>#potholeStyle</styleUrl>')
+            kml_content.append('<Point>')
+            kml_content.append(f'<coordinates>{lon},{lat},0</coordinates>') # KML uses lon,lat
+            kml_content.append('</Point>')
+            kml_content.append('</Placemark>')
+
+        kml_content.append('</Document>')
+        kml_content.append('</kml>')
+
+        with open(kml_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(kml_content))
+
+        with sessions_lock:
+            s = sessions.get(sid)
+            if s:
+                s["kml_path"] = kml_path
+                s["kml_url"] = build_absolute_url(f"/reports/{filename}")
+        
+        print(f"[{sid}] KML Map Generated: {kml_path}")
+        return kml_path
+    except Exception as e:
+        print(f"KML Gen Error: {e}")
+        return None
+# ------------------------------------------
+
+# ---------------------------
 # CSV & ZIP
 # ---------------------------
 def save_csv_for_session(sid):
@@ -500,7 +689,6 @@ def save_csv_for_session(sid):
 
     try:
         with open(filepath, "w", newline="", encoding="utf-8") as f:
-            # Updated fields with GPS
             fields = ["frame_number", "video_time_s", "timestamp", "confidence", "area_m2", "severity", "track_id", "snapshot_file", "latitude", "longitude"]
             writer = csv.DictWriter(f, fieldnames=fields)
             writer.writeheader()
@@ -533,6 +721,11 @@ def create_archive_for_session(sid):
         s["archiving"] = True
     try:
         time.sleep(0.5)
+        
+        # Generate Reports
+        pdf_path = generate_pdf_report(sid)
+        kml_path = generate_kml_report(sid) # Generate KML
+
         with sessions_lock:
             s = sessions.get(sid)
             if not s: return None
@@ -541,6 +734,8 @@ def create_archive_for_session(sid):
             csv_path = s.get("csv_path")
             snap_dir = s.get("snapshot_dir")
             gpx_path = s.get("gpx_path")
+            pdf_path_stored = s.get("pdf_path") 
+            kml_path_stored = s.get("kml_path")
 
         ts = now_ts()
         zip_name = f"{video_name}_archive_{ts}.zip"
@@ -553,6 +748,10 @@ def create_archive_for_session(sid):
                 zf.write(csv_path, os.path.basename(csv_path))
             if gpx_path and os.path.exists(gpx_path):
                 zf.write(gpx_path, os.path.basename(gpx_path))
+            if pdf_path_stored and os.path.exists(pdf_path_stored):
+                zf.write(pdf_path_stored, os.path.basename(pdf_path_stored))
+            if kml_path_stored and os.path.exists(kml_path_stored):
+                zf.write(kml_path_stored, os.path.basename(kml_path_stored))
             
             if snap_dir and os.path.exists(snap_dir):
                 for root, dirs, files in os.walk(snap_dir):
@@ -593,11 +792,14 @@ def mjpeg_stream_for_session(sid):
 
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
         fps_val = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        duration_s = total_frames / fps_val if fps_val > 0 else 0.0
+
         with sessions_lock:
             s = sessions.get(sid)
             if s:
                 s["total_frames"] = total_frames
                 s["video_fps"] = fps_val
+                s["duration_s"] = duration_s 
                 s["streaming"] = True
                 s["last_activity"] = time.time()
 
@@ -670,6 +872,10 @@ def upload():
     f = request.files["video"]
     if f.filename == "": return jsonify({"error": "Empty"}), 400
     if not allowed_file(f.filename): return jsonify({"error": "Invalid"}), 400
+    
+    start_c = request.form.get("start_coords")
+    end_c = request.form.get("end_coords")
+
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     filename = secure_filename(f.filename)
     path = os.path.join(UPLOAD_DIR, filename)
@@ -678,7 +884,8 @@ def upload():
         filename = f"{base}_{int(time.time())}{ext}"
         path = os.path.join(UPLOAD_DIR, filename)
     f.save(path)
-    entry = create_session_entry(path, f.filename)
+    
+    entry = create_session_entry(path, f.filename, start_c, end_c)
     sid = entry["session_id"]
     threading.Thread(target=lambda: auto_cleanup(UPLOAD_DIR, MAX_FILES_UPLOADS), daemon=True).start()
     return jsonify({"status": "uploaded", "session_id": sid, "video_name": f.filename})
@@ -693,7 +900,6 @@ def progress(sid):
         s = sessions.get(sid)
         if not s: return jsonify({"error": "Invalid"}), 404
         proc, total, fps = s.get("processed_frames", 0), s.get("total_frames", 0), s.get("processing_fps", 0)
-        # RESTORED: video_fps for frontend UI
         v_fps = s.get("video_fps", 0.0)
     pct = (proc / total * 100.0) if total > 0 else 0.0
     eta = (total - proc) / (fps + 1e-6) if fps > 0 else None
@@ -701,7 +907,7 @@ def progress(sid):
         "processed_frames": proc, 
         "total_frames": total, 
         "progress_percent": round(pct, 2), 
-        "video_fps": round(v_fps, 2), # Restored field
+        "video_fps": round(v_fps, 2),
         "processing_fps": round(fps, 2), 
         "estimated_time_left_s": round(eta, 1) if eta else None
     })
@@ -714,7 +920,6 @@ def detection_count(sid):
         logs = list(s.get("detection_logs", []))
     det = len(logs)
     total_area = round(sum(l.get("area_m2", 0) for l in logs), 2)
-    # RESTORED: avg_confidence for frontend UI
     avg = round(sum(l.get("confidence", 0.0) for l in logs) / det, 3) if det > 0 else 0.0
     return jsonify({"detections": det, "total_area": total_area, "avg_confidence": avg})
 
@@ -723,7 +928,6 @@ def processing_status(sid):
     with sessions_lock:
         s = sessions.get(sid)
         if not s: return jsonify({"error": "Invalid"}), 404
-        # Fixed variable name collision logic
         proc = bool((s.get("worker") and s.get("worker").is_alive()) or s.get("streaming") or s.get("archiving"))
     return jsonify({"processing": proc})
 
@@ -734,6 +938,8 @@ def last_report(sid):
         if not s or not s.get("csv_path"): return jsonify({"error": "No report"}), 404
         return jsonify({
             "csv_path": s.get("csv_path"), "csv_url": s.get("csv_url"),
+            "pdf_path": s.get("pdf_path"), "pdf_url": s.get("pdf_url"),
+            "kml_path": s.get("kml_path"), "kml_url": s.get("kml_url"), # Added KML URL
             "archive_path": s.get("archive_path"), "archive_url": s.get("archive_url"),
             "total_detections": s.get("total_detections", 0),
             "total_area": s.get("total_area", 0.0),
@@ -741,11 +947,43 @@ def last_report(sid):
             "video_name": s.get("video_name")
         })
 
+@app.route("/export_pdf/<sid>")
+def export_pdf(sid):
+    with sessions_lock:
+        s = sessions.get(sid)
+        if not s: return jsonify({"error": "Invalid"}), 404
+        pdf_path = s.get("pdf_path")
+    if not pdf_path or not os.path.exists(pdf_path):
+        pdf_path = generate_pdf_report(sid)
+    if pdf_path and os.path.exists(pdf_path):
+        return send_file(pdf_path, mimetype="application/pdf", as_attachment=True, download_name=os.path.basename(pdf_path))
+    return "PDF generation failed or ReportLab not installed.", 500
+
+# --- NEW: Route to trigger/download KML ---
+@app.route("/export_kml/<sid>")
+def export_kml(sid):
+    with sessions_lock:
+        s = sessions.get(sid)
+        if not s: return jsonify({"error": "Invalid"}), 404
+        kml_path = s.get("kml_path")
+    
+    if not kml_path or not os.path.exists(kml_path):
+        kml_path = generate_kml_report(sid)
+    
+    if kml_path and os.path.exists(kml_path):
+        return send_file(kml_path, mimetype="application/vnd.google-earth.kml+xml", as_attachment=True, download_name=os.path.basename(kml_path))
+    
+    return "KML generation failed (No GPS data?).", 500
+# ------------------------------------------
+
 @app.route("/reports/<path:filename>")
 def serve_report(filename):
     req = os.path.abspath(os.path.join(REPORT_DIR, filename))
     if not safe_commonpath(os.path.abspath(REPORT_DIR), req) or not os.path.exists(req): return "Not found", 404
-    return send_file(req, mimetype="text/csv", as_attachment=True, download_name=os.path.basename(req))
+    mime = "text/csv"
+    if filename.endswith(".pdf"): mime = "application/pdf"
+    if filename.endswith(".kml"): mime = "application/vnd.google-earth.kml+xml"
+    return send_file(req, mimetype=mime, as_attachment=True, download_name=os.path.basename(req))
 
 @app.route("/download_archive/<path:filename>")
 def download_archive(filename):
