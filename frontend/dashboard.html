@@ -1110,6 +1110,9 @@ function detectBackend() {
       liveStream: null,
       liveTimer: null,
       liveBusy: false,
+      refreshingStats: false,
+      loadingHistory: false,
+      refreshingHealth: false,
       lastFrameCost: null,
       liveConfig: null,
       recentSessions: [],
@@ -1311,7 +1314,7 @@ function detectBackend() {
       if (values.average_confidence != null) avgConfidenceEl.textContent = safeFixed(values.average_confidence, 3);
       if (values.video_fps != null) videoFpsEl.textContent = safeFixed(values.video_fps);
       if (values.processing_fps != null) procFpsEl.textContent = safeFixed(values.processing_fps);
-      if (values.estimated_time_left_s != null) etaEl.textContent = formatEta(values.estimated_time_left_s);
+      if (Object.prototype.hasOwnProperty.call(values, "estimated_time_left_s")) etaEl.textContent = formatEta(values.estimated_time_left_s);
       frameCostEl.textContent = state.lastFrameCost != null ? `${safeFixed(state.lastFrameCost, 1)} ms` : "--";
       updateInsights(values);
     }
@@ -1459,34 +1462,48 @@ function detectBackend() {
       `;
     }
 
-    async function loadRecentSessions() {
-      const res = await fetchJson(`${backend}/recent_reports?limit=8`, { cache: "no-store" });
-      if (!res.ok) {
-        recentSessionsEl.innerHTML = `<div class="empty-state">Could not load recent sessions from the backend.</div>`;
-        return;
-      }
+    async function loadRecentSessions(force = false) {
+      if (state.loadingHistory) return;
+      if (document.hidden && !force) return;
+      state.loadingHistory = true;
+      try {
+        const res = await fetchJson(`${backend}/recent_reports?limit=8`, { cache: "no-store" });
+        if (!res.ok) {
+          recentSessionsEl.innerHTML = `<div class="empty-state">Could not load recent sessions from the backend.</div>`;
+          return;
+        }
 
-      const items = Array.isArray(res.data.items) ? res.data.items : [];
-      state.recentSessions = items;
-      if (!items.length) {
-        recentSessionsEl.innerHTML = `<div class="empty-state">No completed sessions yet. Run a photo, video, or live job to populate this list.</div>`;
-        return;
-      }
+        const items = Array.isArray(res.data.items) ? res.data.items : [];
+        state.recentSessions = items;
+        if (!items.length) {
+          recentSessionsEl.innerHTML = `<div class="empty-state">No completed sessions yet. Run a photo, video, or live job to populate this list.</div>`;
+          return;
+        }
 
-      recentSessionsEl.innerHTML = items.map(renderRecentSession).join("");
+        recentSessionsEl.innerHTML = items.map(renderRecentSession).join("");
+      } finally {
+        state.loadingHistory = false;
+      }
     }
 
-    async function refreshHealth() {
-      const res = await fetchJson(`${backend}/health`, { cache: "no-store" });
-      if (!res.ok) {
-        runtimeLabel.textContent = "Runtime: backend health endpoint unavailable.";
-        return;
-      }
+    async function refreshHealth(force = false) {
+      if (state.refreshingHealth) return;
+      if (document.hidden && !force) return;
+      state.refreshingHealth = true;
+      try {
+        const res = await fetchJson(`${backend}/health`, { cache: "no-store" });
+        if (!res.ok) {
+          runtimeLabel.textContent = "Runtime: backend health endpoint unavailable.";
+          return;
+        }
 
-      const runtime = res.data.gpu ? `GPU on ${res.data.device}` : `CPU on ${res.data.device}`;
-      const tracker = res.data.tracker || "default";
-      const activeSessions = Number(res.data.active_sessions ?? 0);
-      runtimeLabel.textContent = `Runtime: ${runtime}, tracker ${tracker}, active sessions ${activeSessions}.`;
+        const runtime = res.data.gpu ? `GPU on ${res.data.device}` : `CPU on ${res.data.device}`;
+        const tracker = res.data.tracker || "default";
+        const activeSessions = Number(res.data.active_sessions ?? 0);
+        runtimeLabel.textContent = `Runtime: ${runtime}, tracker ${tracker}, active sessions ${activeSessions}.`;
+      } finally {
+        state.refreshingHealth = false;
+      }
     }
 
     async function deleteSessionRecord(sessionId) {
@@ -1502,8 +1519,8 @@ function detectBackend() {
       if (state.sessionId === sessionId) {
         resetSession();
       }
-      await loadRecentSessions();
-      await refreshHealth();
+      await loadRecentSessions(true);
+      await refreshHealth(true);
       setStatus(`Deleted session ${sessionId}`);
     }
 
@@ -1522,7 +1539,7 @@ function detectBackend() {
       resetSession();
       state.recentSessions = [];
       recentSessionsEl.innerHTML = `<div class="empty-state">No completed sessions yet. Run a photo, video, or live job to populate this list.</div>`;
-      await refreshHealth();
+      await refreshHealth(true);
       setStatus(`Deleted ${res.data.deleted_sessions || 0} sessions`);
     }
 
@@ -1556,7 +1573,7 @@ function detectBackend() {
         if (res.ok) {
           applyReport(res.data);
           setStatus("Live session saved");
-          loadRecentSessions();
+          loadRecentSessions(true);
         } else {
           setStatus("Live session stop failed", "error");
         }
@@ -1628,6 +1645,7 @@ function detectBackend() {
       sessionIdEl.textContent = state.sessionId;
       setStatus("Video uploaded. Starting analysis...");
       setAnalysisImage(`${backend}/video_feed/${state.sessionId}?t=${Date.now()}`);
+      refreshStats(true);
     });
 
     document.getElementById("photoCard").addEventListener("submit", async (event) => {
@@ -1653,7 +1671,7 @@ function detectBackend() {
       applyReport(res.data);
       setAnalysisImage(res.data.annotated_url || res.data.image_data);
       setStatus("Photo analyzed");
-      loadRecentSessions();
+      loadRecentSessions(true);
     });
 
     startLiveBtn.addEventListener("click", async () => {
@@ -1701,6 +1719,7 @@ function detectBackend() {
       startLiveBtn.classList.add("disabled");
       stopLiveBtn.classList.remove("disabled");
       setStatus(`Live capture active (${liveProfile})`, "live");
+      refreshStats(true);
 
       const intervalMs = Number(document.getElementById("liveInterval").value || 350);
       state.liveTimer = setInterval(sendLiveFrame, intervalMs);
@@ -1710,7 +1729,7 @@ function detectBackend() {
       await stopLiveSession(true);
     });
 
-    refreshHistoryBtn.addEventListener("click", loadRecentSessions);
+    refreshHistoryBtn.addEventListener("click", () => loadRecentSessions(true));
     deleteAllHistoryBtn.addEventListener("click", deleteAllHistory);
 
     recentSessionsEl.addEventListener("click", async (event) => {
@@ -1754,7 +1773,7 @@ function detectBackend() {
       }
 
       setStatus(`Loaded ${item.source_type || "session"} report`);
-      loadRecentSessions();
+      loadRecentSessions(true);
     });
 
     async function sendLiveFrame() {
@@ -1797,37 +1816,44 @@ function detectBackend() {
       }, "image/jpeg", ((cfg.jpeg_quality || 78) / 100));
     }
 
-    async function refreshStats() {
-      if (!state.sessionId) return;
+    async function refreshStats(force = false) {
+      if (!state.sessionId || state.refreshingStats) return;
+      if (document.hidden && !force) return;
 
-      const [det, prog, proc, last] = await Promise.all([
-        fetchJson(`${backend}/detection_count/${state.sessionId}`),
-        fetchJson(`${backend}/progress/${state.sessionId}`),
-        fetchJson(`${backend}/processing_status/${state.sessionId}`),
-        fetchJson(`${backend}/last_report/${state.sessionId}`),
-      ]);
+      state.refreshingStats = true;
+      try {
+        const res = await fetchJson(`${backend}/session_state/${state.sessionId}`, { cache: "no-store" });
+        if (!res.ok) return;
 
-      if (det.ok) updateStats(det.data);
-      if (prog.ok) updateStats(prog.data);
-      if (proc.ok) {
-        if (proc.data.processing && state.mode === "live") setStatus("Live capture active", "live");
-        else if (proc.data.processing) setStatus("Processing...");
+        updateStats(res.data);
+        applyReport(res.data);
+
+        if (res.data.processing && state.mode === "live") setStatus("Live capture active", "live");
+        else if (res.data.processing) setStatus("Processing...");
         else if (state.mode === "video" && state.sessionId) {
-          if (proc.data.complete) setStatus("Video ready");
-          else if (proc.data.queued) setStatus("Video uploaded. Waiting for backend...");
+          if (res.data.complete) setStatus("Video ready");
+          else if (res.data.queued) setStatus("Video uploaded. Waiting for backend...");
           else setStatus("Video uploaded");
         }
+      } finally {
+        state.refreshingStats = false;
       }
-      if (last.ok) applyReport(last.data);
     }
 
-    setInterval(refreshStats, 1000);
+    setInterval(() => refreshStats(), 1000);
     setInterval(() => {
       refreshHealth();
       loadRecentSessions();
-    }, 15000);
-    refreshHealth();
-    loadRecentSessions();
+    }, 30000);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) {
+        refreshStats(true);
+        refreshHealth(true);
+        loadRecentSessions(true);
+      }
+    });
+    refreshHealth(true);
+    loadRecentSessions(true);
     resetInsights();
     activateMode("video");
   </script>

@@ -95,6 +95,8 @@ MAX_FILES_UPLOADS = int(os.environ.get("MAX_FILES_UPLOADS", 20))
 MAX_FILES_REPORTS = int(os.environ.get("MAX_FILES_REPORTS", 50))
 MAX_FILES_ARCHIVES = int(os.environ.get("MAX_FILES_ARCHIVES", 20))
 SESSION_TTL = int(os.environ.get("SESSION_TTL", 60 * 60 * 3))
+SUMMARY_REFRESH_INTERVAL = float(os.environ.get("SUMMARY_REFRESH_INTERVAL", 0.75))
+PREVIEW_FRAME_INTERVAL = float(os.environ.get("PREVIEW_FRAME_INTERVAL", 0.12))
 
 DEVICE = "cpu"
 USE_CUDA = False
@@ -564,7 +566,17 @@ def build_map_payload(sid, payload, logs):
         "east": max(longitudes),
     }
 
-    summary = summarize_logs(logs)
+    summary = {
+        "gps_detection_count": payload.get("gps_detection_count", 0),
+        "road_health_score": payload.get("road_health_score", 100),
+        "maintenance_priority": payload.get("maintenance_priority", "Low"),
+        "health_band": payload.get("health_band", "Excellent"),
+        "insight_headline": payload.get("insight_headline", ""),
+        "recommended_action": payload.get("recommended_action", ""),
+        "hotspots": payload.get("hotspots", []),
+    }
+    if not summary.get("hotspots") and logs:
+        summary = summarize_logs(logs)
     hotspot_markers = []
     for hotspot in summary.get("hotspots", []):
         if hotspot.get("kind") != "gps":
@@ -777,6 +789,8 @@ sessions_lock = threading.Lock()
 
 def create_session_entry(video_path, original_name, start_coords=None, end_coords=None, source_type="video"):
     sid = uuid.uuid4().hex[:12]
+    created_at = time.time()
+    initial_summary = summarize_logs([])
     
     session_snapshot_dir = os.path.join(SNAPSHOT_DIR, sid)
     os.makedirs(session_snapshot_dir, exist_ok=True)
@@ -815,23 +829,27 @@ def create_session_entry(video_path, original_name, start_coords=None, end_coord
         "annotated_path": None, "annotated_url": None,
         "last_live_frame_bytes": None,
         "last_video_frame_bytes": None,
+        "last_video_preview_at": 0.0,
         
         "total_frames": 0, "processed_frames": 0,
         "video_fps": 0.0, "processing_fps": 0.0,
         "duration_s": 0.0,
-        "severity_counts": default_severity_counts(),
-        "gps_detection_count": 0,
-        "has_map": False,
-        "unique_hazards": 0,
-        "top_severity": "None",
-        "road_health_score": 100,
-        "health_band": "Excellent",
-        "maintenance_priority": "Low",
-        "insight_headline": "Road surface looks clear.",
-        "recommended_action": "No immediate maintenance signal. Keep monitoring with routine captures.",
-        "hotspot_count": 0,
-        "hotspots": [],
-        "highlights": [],
+        "severity_counts": dict(initial_summary.get("severity_counts", default_severity_counts())),
+        "gps_detection_count": initial_summary.get("gps_detection_count", 0),
+        "has_map": initial_summary.get("has_map", False),
+        "unique_hazards": initial_summary.get("unique_hazards", 0),
+        "top_severity": initial_summary.get("top_severity", "None"),
+        "road_health_score": initial_summary.get("road_health_score", 100),
+        "health_band": initial_summary.get("health_band", "Excellent"),
+        "maintenance_priority": initial_summary.get("maintenance_priority", "Low"),
+        "insight_headline": initial_summary.get("insight_headline", "Road surface looks clear."),
+        "recommended_action": initial_summary.get("recommended_action", "No immediate maintenance signal. Keep monitoring with routine captures."),
+        "hotspot_count": initial_summary.get("hotspot_count", 0),
+        "hotspots": list(initial_summary.get("hotspots", [])),
+        "highlights": list(initial_summary.get("highlights", [])),
+        "summary_cache": dict(initial_summary),
+        "summary_dirty": False,
+        "summary_updated_at": created_at,
         "live_active": source_type == "live",
         "live_config": {
             "frame_width": LIVE_FRAME_WIDTH,
@@ -841,7 +859,7 @@ def create_session_entry(video_path, original_name, start_coords=None, end_coord
             "use_tracking": LIVE_USE_TRACKING,
             "jpeg_quality": 78,
         },
-        "created_at": time.time(), "last_activity": time.time(),
+        "created_at": created_at, "last_activity": created_at,
         "streaming": False, "archiving": False,
         "processing_active": False,
         "processing_complete": False,
@@ -903,7 +921,48 @@ def apply_summary_to_session(session_obj, summary):
     session_obj["hotspot_count"] = summary.get("hotspot_count", 0)
     session_obj["hotspots"] = summary.get("hotspots", [])
     session_obj["highlights"] = summary.get("highlights", [])
-    session_obj["last_activity"] = time.time()
+    session_obj["summary_cache"] = dict(summary)
+    session_obj["summary_dirty"] = False
+    session_obj["summary_updated_at"] = time.time()
+    session_obj["last_activity"] = session_obj["summary_updated_at"]
+
+def mark_session_summary_dirty(session_obj):
+    if not session_obj:
+        return
+    session_obj["summary_dirty"] = True
+
+def refresh_session_summary(session_obj, force=False, min_interval=0.0):
+    if not session_obj:
+        return summarize_logs([])
+    cached = session_obj.get("summary_cache")
+    dirty = bool(session_obj.get("summary_dirty", False))
+    now = time.time()
+    if cached is not None and not force:
+        if not dirty:
+            return cached
+        last_updated = safe_float(session_obj.get("summary_updated_at"), 0.0) or 0.0
+        if min_interval > 0 and (now - last_updated) < min_interval:
+            return cached
+    summary = summarize_logs(session_obj.get("detection_logs", []))
+    apply_summary_to_session(session_obj, summary)
+    return summary
+
+def session_processing_state(session_obj):
+    if not session_obj:
+        return False, False, False
+    worker = session_obj.get("worker")
+    producer = session_obj.get("producer")
+    processing = bool(
+        session_obj.get("processing_active")
+        or bool(worker and worker.is_alive())
+        or bool(producer and producer.is_alive())
+        or session_obj.get("streaming")
+        or session_obj.get("archiving")
+        or session_obj.get("live_active")
+    )
+    complete = bool(session_obj.get("processing_complete"))
+    queued = bool(session_obj.get("source_type") == "video" and not complete and not processing)
+    return processing, complete, queued
 
 def cleanup_session(sid):
     with sessions_lock:
@@ -932,6 +991,8 @@ def cleanup_session(sid):
         entry.get("seen_ids", set()).clear()
         entry["last_live_frame_bytes"] = None
         entry["last_video_frame_bytes"] = None
+        entry["summary_cache"] = None
+        entry["summary_dirty"] = False
         entry["live_active"] = False
         entry["streaming"] = False
         entry["archiving"] = False
@@ -966,7 +1027,7 @@ def draw_boxes_and_log(
     h, w = frame.shape[:2]
     
     orig_frame_clean = None
-    if cv2 is not None:
+    if cv2 is not None and save_snapshots and snapshot_dir:
         orig_frame_clean = frame.copy()
 
     if boxes_obj is None: return frame, logs
@@ -1134,9 +1195,7 @@ def update_session_summary_fields(sid):
         s = sessions.get(sid)
         if not s:
             return None
-        summary = summarize_logs(list(s.get("detection_logs", [])))
-        apply_summary_to_session(s, summary)
-        return summary
+        return refresh_session_summary(s, force=True)
 
 def ensure_session_worker(sid):
     with sessions_lock:
@@ -1164,9 +1223,19 @@ def drain_latest_processed_frame(result_queue):
         pass
     return latest_frame
 
-def update_video_preview_frame(sid, frame=None, jpeg_bytes=None):
+def update_video_preview_frame(sid, frame=None, jpeg_bytes=None, force=False):
     if cv2 is None:
         return None
+    now = time.time()
+    with sessions_lock:
+        s = sessions.get(sid)
+        if not s:
+            return None
+        if not force:
+            last_preview_at = safe_float(s.get("last_video_preview_at"), 0.0) or 0.0
+            if s.get("last_video_frame_bytes") and (now - last_preview_at) < PREVIEW_FRAME_INTERVAL:
+                s["last_activity"] = now
+                return s.get("last_video_frame_bytes")
     if jpeg_bytes is None and frame is not None:
         jpeg_bytes = encode_frame_to_jpeg(frame, quality=82)
     if not jpeg_bytes:
@@ -1176,7 +1245,8 @@ def update_video_preview_frame(sid, frame=None, jpeg_bytes=None):
         if not s:
             return None
         s["last_video_frame_bytes"] = jpeg_bytes
-        s["last_activity"] = time.time()
+        s["last_video_preview_at"] = now
+        s["last_activity"] = now
     return jpeg_bytes
 
 def persist_video_preview_frame(sid, jpeg_bytes):
@@ -1302,6 +1372,8 @@ def session_video_producer(sid):
                 break
             time.sleep(0.05)
 
+        if last_rendered_frame is not None:
+            last_preview_bytes = update_video_preview_frame(sid, frame=last_rendered_frame, force=True) or last_preview_bytes
         if last_preview_bytes:
             persist_video_preview_frame(sid, last_preview_bytes)
     finally:
@@ -1411,8 +1483,8 @@ def session_infer_worker(sid):
                     s = sessions.get(sid)
                     if s:
                         s["detection_logs"].extend(logs)
-                        summary = summarize_logs(s["detection_logs"])
-                        apply_summary_to_session(s, summary)
+                        mark_session_summary_dirty(s)
+                        refresh_session_summary(s, min_interval=SUMMARY_REFRESH_INTERVAL)
 
             with sessions_lock:
                 s = sessions.get(sid)
@@ -1438,7 +1510,7 @@ def generate_pdf_report(sid):
         logs = list(s["detection_logs"])
         video_name = s.get("video_name") or f"Session {sid}"
         snap_dir = s.get("snapshot_dir")
-        summary = summarize_logs(logs)
+        summary = refresh_session_summary(s, force=True)
 
     timestamp = now_ts()
     filename = f"{secure_filename(video_name)}_report_{timestamp}.pdf"
@@ -1622,6 +1694,7 @@ def save_csv_for_session(sid):
         if not s: return None
         logs = list(s["detection_logs"])
         video_name = secure_filename(s.get("video_name") or f"session_{sid}")
+        summary = refresh_session_summary(s, force=True)
 
     timestamp = now_ts()
     filename = f"{video_name}_detections_{timestamp}.csv"
@@ -1641,7 +1714,6 @@ def save_csv_for_session(sid):
             if s:
                 s["csv_path"] = filepath
                 s["csv_url"] = csv_url
-                summary = summarize_logs(logs)
                 apply_summary_to_session(s, summary)
         auto_cleanup(REPORT_DIR, MAX_FILES_REPORTS)
         return filepath
@@ -1835,7 +1907,7 @@ def save_session_manifest(sid):
         manifest_name = f"{secure_filename(payload.get('video_name') or sid)}_{sid}.json"
         manifest_path = os.path.join(MANIFEST_DIR, manifest_name)
         with open(manifest_path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2)
+            json.dump(payload, f, separators=(",", ":"))
         return manifest_path
     except Exception:
         traceback.print_exc()
@@ -2060,6 +2132,7 @@ def upload_photo():
         if not s:
             return jsonify({"error": "Session init failed"}), 500
         s["detection_logs"].extend(logs)
+        mark_session_summary_dirty(s)
         s["processed_frames"] = 1
         s["total_frames"] = 1
         s["annotated_path"] = annotated_path
@@ -2161,8 +2234,8 @@ def live_frame(sid):
             return jsonify({"error": "Invalid"}), 404
         if logs:
             s["detection_logs"].extend(logs)
-            summary = summarize_logs(list(s.get("detection_logs", [])))
-            apply_summary_to_session(s, summary)
+            mark_session_summary_dirty(s)
+            refresh_session_summary(s, min_interval=SUMMARY_REFRESH_INTERVAL)
         s["processed_frames"] = frame_number
         s["duration_s"] = video_time
         s["last_activity"] = time.time()
@@ -2252,27 +2325,44 @@ def detection_count(sid):
     with sessions_lock:
         s = sessions.get(sid)
         if not s: return jsonify({"error": "Invalid"}), 404
-        logs = list(s.get("detection_logs", []))
-    return jsonify(summarize_logs(logs))
+        summary = refresh_session_summary(s, min_interval=SUMMARY_REFRESH_INTERVAL)
+    return jsonify(summary)
 
 @app.route("/processing_status/<sid>")
 def processing_status(sid):
     with sessions_lock:
         s = sessions.get(sid)
         if not s: return jsonify({"error": "Invalid"}), 404
-        worker = s.get("worker")
-        producer = s.get("producer")
-        proc = bool(
-            s.get("processing_active")
-            or bool(worker and worker.is_alive())
-            or bool(producer and producer.is_alive())
-            or s.get("streaming")
-            or s.get("archiving")
-            or s.get("live_active")
-        )
-        complete = bool(s.get("processing_complete"))
-        queued = bool(s.get("source_type") == "video" and not complete and not proc)
+        proc, complete, queued = session_processing_state(s)
     return jsonify({"processing": proc, "complete": complete, "queued": queued})
+
+@app.route("/session_state/<sid>")
+def session_state(sid):
+    with sessions_lock:
+        s = sessions.get(sid)
+        if not s:
+            return jsonify({"error": "Invalid"}), 404
+        refresh_session_summary(s, min_interval=SUMMARY_REFRESH_INTERVAL)
+        payload = session_report_payload(s)
+        proc, complete, queued = session_processing_state(s)
+        processed_frames = s.get("processed_frames", 0)
+        total_frames = s.get("total_frames", 0)
+        video_fps = round(s.get("video_fps", 0.0), 2)
+        processing_fps = round(s.get("processing_fps", 0.0), 2)
+    progress_percent = (processed_frames / total_frames * 100.0) if total_frames > 0 else 0.0
+    eta = (total_frames - processed_frames) / (processing_fps + 1e-6) if processing_fps > 0 else None
+    payload.update({
+        "processing": proc,
+        "complete": complete,
+        "queued": queued,
+        "processed_frames": processed_frames,
+        "total_frames": total_frames,
+        "progress_percent": round(progress_percent, 2),
+        "video_fps": video_fps,
+        "processing_fps": processing_fps,
+        "estimated_time_left_s": round(eta, 1) if eta else None,
+    })
+    return jsonify(payload)
 
 @app.route("/last_report/<sid>")
 def last_report(sid):
