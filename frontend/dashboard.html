@@ -1,0 +1,1835 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Road Watch Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    :root {
+      --ink: #0f172a;
+      --muted: #64748b;
+      --line: rgba(15, 23, 42, 0.08);
+      --surface: rgba(255, 255, 255, 0.92);
+      --blue: #0f5ef7;
+      --blue-deep: #0b2a6b;
+      --sand: #f8f5ef;
+      --mint: #0f766e;
+      --danger: #dc2626;
+      --shadow: 0 18px 60px rgba(15, 23, 42, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body {
+      margin: 0;
+      font-family: "Inter", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(15, 94, 247, 0.18), transparent 28%),
+        radial-gradient(circle at bottom right, rgba(15, 118, 110, 0.12), transparent 24%),
+        linear-gradient(180deg, #f7f7f2 0%, #edf3ff 58%, #f7f9fc 100%);
+    }
+
+    .shell {
+      max-width: 1360px;
+      margin: 0 auto;
+      padding: 28px 20px 40px;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      color: inherit;
+      text-decoration: none;
+      font-weight: 800;
+      font-size: 1.2rem;
+      letter-spacing: -0.04em;
+    }
+
+    .brand-badge {
+      width: 44px;
+      height: 44px;
+      border-radius: 14px;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      background: linear-gradient(135deg, var(--blue), var(--blue-deep));
+      box-shadow: 0 12px 28px rgba(15, 94, 247, 0.2);
+    }
+
+    .nav {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .nav a {
+      text-decoration: none;
+      color: var(--ink);
+      padding: 10px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.8);
+      font-weight: 600;
+    }
+
+    .nav a.active {
+      color: #fff;
+      border-color: transparent;
+      background: linear-gradient(135deg, var(--blue), var(--blue-deep));
+      box-shadow: 0 12px 30px rgba(15, 94, 247, 0.18);
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.45fr 0.85fr;
+      gap: 20px;
+      align-items: stretch;
+      margin-bottom: 20px;
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(14px);
+    }
+
+    .headline {
+      padding: 26px 28px;
+      background:
+        linear-gradient(135deg, rgba(15, 94, 247, 0.96), rgba(11, 42, 107, 0.96)),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.18), transparent);
+      color: #fff;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .headline::after {
+      content: "";
+      position: absolute;
+      right: -60px;
+      top: -40px;
+      width: 220px;
+      height: 220px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.16);
+      font-size: 0.82rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .headline h1 {
+      margin: 16px 0 10px;
+      font-size: clamp(2rem, 3.8vw, 3.5rem);
+      line-height: 0.95;
+      letter-spacing: -0.05em;
+    }
+
+    .headline p {
+      max-width: 720px;
+      margin: 0;
+      font-size: 1rem;
+      color: rgba(255, 255, 255, 0.88);
+    }
+
+    .mini-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 22px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .mini-card {
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.14);
+      padding: 14px;
+      min-height: 110px;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+    }
+
+    .mini-card strong {
+      display: block;
+      font-size: 1.45rem;
+      margin-top: 8px;
+    }
+
+    .mission {
+      padding: 24px;
+      display: grid;
+      gap: 14px;
+      align-content: center;
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(247, 245, 239, 0.96));
+    }
+
+    .mission h2 {
+      margin: 0;
+      font-size: 1.2rem;
+      letter-spacing: -0.03em;
+    }
+
+    .mission p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 1.5fr 0.8fr;
+      gap: 20px;
+    }
+
+    .workspace {
+      padding: 18px;
+      display: grid;
+      gap: 18px;
+    }
+
+    .mode-bar {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .mode-btn {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      border-radius: 999px;
+      padding: 12px 16px;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      transition: 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .mode-btn.active {
+      color: #fff;
+      background: linear-gradient(135deg, var(--blue), var(--blue-deep));
+      border-color: transparent;
+      box-shadow: 0 12px 30px rgba(15, 94, 247, 0.22);
+    }
+
+    .controls {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+    }
+
+    .card {
+      background: rgba(255, 255, 255, 0.92);
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      padding: 16px;
+    }
+
+    .form-card {
+      grid-column: span 12;
+    }
+
+    .form-card[hidden] {
+      display: none;
+    }
+
+    .section-title {
+      margin: 0 0 10px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 1rem;
+    }
+
+    .section-copy {
+      color: var(--muted);
+      margin: 0 0 14px;
+      font-size: 0.92rem;
+      line-height: 1.55;
+    }
+
+    .field-row {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+    }
+
+    .field,
+    .field-wide {
+      grid-column: span 4;
+      display: grid;
+      gap: 6px;
+    }
+
+    .field-wide {
+      grid-column: span 6;
+    }
+
+    label {
+      font-size: 0.82rem;
+      color: var(--muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    input[type="text"],
+    input[type="file"],
+    select {
+      width: 100%;
+      border-radius: 14px;
+      border: 1px solid rgba(15, 23, 42, 0.12);
+      padding: 12px 14px;
+      font: inherit;
+      background: #fff;
+    }
+
+    input[type="file"] {
+      padding: 10px 12px;
+    }
+
+    .action-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 14px;
+    }
+
+    .button {
+      border: none;
+      border-radius: 14px;
+      padding: 13px 18px;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+      transition: 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      justify-content: center;
+      text-decoration: none;
+      color: #fff;
+      background: linear-gradient(135deg, var(--blue), var(--blue-deep));
+      box-shadow: 0 12px 28px rgba(15, 94, 247, 0.2);
+    }
+
+    .button.secondary {
+      background: linear-gradient(135deg, #0f766e, #115e59);
+      box-shadow: 0 12px 28px rgba(15, 118, 110, 0.18);
+    }
+
+    .button.ghost {
+      background: #fff;
+      color: var(--ink);
+      border: 1px solid var(--line);
+      box-shadow: none;
+    }
+
+    .button.warn {
+      background: linear-gradient(135deg, #ef4444, #991b1b);
+      box-shadow: 0 12px 28px rgba(220, 38, 38, 0.18);
+    }
+
+    .button[disabled],
+    .button.disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      pointer-events: none;
+      box-shadow: none;
+    }
+
+    .stage {
+      position: relative;
+      min-height: 520px;
+      border-radius: 26px;
+      overflow: hidden;
+      background:
+        linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(11, 42, 107, 0.96)),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .stage img,
+    .stage video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: none;
+    }
+
+    .stage img.active,
+    .stage video.active {
+      display: block;
+    }
+
+    .placeholder {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      color: rgba(255, 255, 255, 0.88);
+      padding: 30px;
+    }
+
+    .placeholder strong {
+      display: block;
+      margin-top: 14px;
+      font-size: 1.4rem;
+    }
+
+    .live-inset {
+      position: absolute;
+      right: 16px;
+      bottom: 16px;
+      width: min(28%, 220px);
+      aspect-ratio: 16 / 10;
+      border-radius: 18px;
+      overflow: hidden;
+      border: 2px solid rgba(255, 255, 255, 0.24);
+      box-shadow: 0 12px 30px rgba(15, 23, 42, 0.28);
+      background: rgba(15, 23, 42, 0.88);
+      display: none;
+    }
+
+    .live-inset.active {
+      display: block;
+    }
+
+    .stage-badge {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.58);
+      color: #fff;
+      backdrop-filter: blur(10px);
+      font-weight: 700;
+    }
+
+    .side {
+      padding: 18px;
+      display: grid;
+      gap: 18px;
+      align-content: start;
+    }
+
+    .stat-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .stat {
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      padding: 14px 16px;
+      background: rgba(248, 245, 239, 0.74);
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .stat span {
+      color: var(--muted);
+      font-size: 0.84rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 700;
+    }
+
+    .stat strong {
+      font-size: 1.05rem;
+    }
+
+    .insight-hero {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 14px;
+      margin-bottom: 12px;
+    }
+
+    .score-kicker {
+      display: block;
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      font-weight: 800;
+    }
+
+    .score-value {
+      display: block;
+      font-size: 2.5rem;
+      font-weight: 800;
+      line-height: 0.95;
+      letter-spacing: -0.05em;
+      margin-top: 6px;
+    }
+
+    .score-band {
+      display: inline-block;
+      margin-top: 8px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .priority-pill {
+      padding: 10px 12px;
+      border-radius: 999px;
+      font-size: 0.84rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border: 1px solid var(--line);
+      background: #edf4ff;
+      color: var(--blue-deep);
+    }
+
+    .priority-pill.low {
+      background: rgba(15, 118, 110, 0.12);
+      color: var(--mint);
+      border-color: rgba(15, 118, 110, 0.18);
+    }
+
+    .priority-pill.moderate {
+      background: rgba(245, 158, 11, 0.14);
+      color: #b45309;
+      border-color: rgba(245, 158, 11, 0.2);
+    }
+
+    .priority-pill.high,
+    .priority-pill.critical {
+      background: rgba(220, 38, 38, 0.12);
+      color: var(--danger);
+      border-color: rgba(220, 38, 38, 0.18);
+    }
+
+    .insight-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .insight-tile {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: rgba(248, 245, 239, 0.72);
+      padding: 12px;
+    }
+
+    .insight-tile span {
+      display: block;
+      font-size: 0.74rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .insight-tile strong {
+      font-size: 1rem;
+    }
+
+    .severity-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .severity-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #fff;
+      font-size: 0.82rem;
+      font-weight: 700;
+    }
+
+    .severity-chip.minor {
+      color: #15803d;
+      border-color: rgba(34, 197, 94, 0.2);
+      background: rgba(240, 253, 244, 0.95);
+    }
+
+    .severity-chip.moderate {
+      color: #b45309;
+      border-color: rgba(245, 158, 11, 0.2);
+      background: rgba(255, 251, 235, 0.95);
+    }
+
+    .severity-chip.major {
+      color: #c2410c;
+      border-color: rgba(249, 115, 22, 0.2);
+      background: rgba(255, 237, 213, 0.95);
+    }
+
+    .severity-chip.severe {
+      color: #b91c1c;
+      border-color: rgba(239, 68, 68, 0.2);
+      background: rgba(254, 242, 242, 0.95);
+    }
+
+    .insight-block {
+      margin-top: 16px;
+    }
+
+    .insight-block h3 {
+      margin: 0 0 8px;
+      font-size: 0.88rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+    }
+
+    .insight-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .insight-item {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.86);
+      padding: 12px;
+    }
+
+    .insight-item strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 0.94rem;
+    }
+
+    .insight-item small {
+      display: block;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 14px;
+      border-radius: 16px;
+      background: #eef5ff;
+      color: var(--blue-deep);
+      font-weight: 700;
+      border: 1px solid rgba(15, 94, 247, 0.16);
+    }
+
+    .status-pill.live {
+      background: rgba(15, 118, 110, 0.12);
+      color: var(--mint);
+      border-color: rgba(15, 118, 110, 0.18);
+    }
+
+    .status-pill.error {
+      background: rgba(220, 38, 38, 0.12);
+      color: var(--danger);
+      border-color: rgba(220, 38, 38, 0.18);
+    }
+
+    .export-grid {
+      display: grid;
+      gap: 10px;
+    }
+
+    .hint {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.6;
+      font-size: 0.92rem;
+    }
+
+    .runtime-label {
+      margin-top: 10px;
+    }
+
+    .history-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .history-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .history-toolbar .section-title {
+      margin-bottom: 0;
+    }
+
+    .mini-btn {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      border-radius: 12px;
+      padding: 10px 12px;
+      font: inherit;
+      font-weight: 700;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+    }
+
+    .mini-btn.primary {
+      color: #fff;
+      border-color: transparent;
+      background: linear-gradient(135deg, var(--blue), var(--blue-deep));
+      box-shadow: 0 12px 28px rgba(15, 94, 247, 0.18);
+    }
+
+    .mini-btn.danger {
+      color: #fff;
+      border-color: transparent;
+      background: linear-gradient(135deg, #ef4444, #991b1b);
+      box-shadow: 0 12px 28px rgba(239, 68, 68, 0.18);
+    }
+
+    .session-list {
+      display: grid;
+      gap: 12px;
+      margin-top: 14px;
+    }
+
+    .session-item {
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: rgba(248, 250, 252, 0.94);
+      padding: 14px;
+    }
+
+    .session-item.active {
+      border-color: rgba(15, 94, 247, 0.24);
+      box-shadow: inset 0 0 0 1px rgba(15, 94, 247, 0.14);
+    }
+
+    .session-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .session-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      background: #edf4ff;
+      color: var(--blue-deep);
+    }
+
+    .session-badge.photo {
+      background: rgba(15, 118, 110, 0.12);
+      color: var(--mint);
+    }
+
+    .session-badge.live {
+      background: rgba(15, 94, 247, 0.12);
+      color: var(--blue);
+    }
+
+    .session-time {
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
+    .session-name {
+      margin-top: 10px;
+      font-weight: 700;
+      font-size: 0.96rem;
+      line-height: 1.4;
+      word-break: break-word;
+    }
+
+    .session-meta {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.5;
+    }
+
+    .session-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .empty-state {
+      padding: 18px;
+      border: 1px dashed var(--line);
+      border-radius: 18px;
+      color: var(--muted);
+      text-align: center;
+      background: rgba(255, 255, 255, 0.78);
+      line-height: 1.6;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    @media (max-width: 1120px) {
+      .hero,
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .topbar {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .mini-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 780px) {
+      .shell {
+        padding: 18px 14px 28px;
+      }
+
+      .stage {
+        min-height: 360px;
+      }
+
+      .insight-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .field,
+      .field-wide {
+        grid-column: span 12;
+      }
+
+      .live-inset {
+        width: 42%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="topbar">
+      <a class="brand" href="home.html">
+        <span class="brand-badge"><i class="fa-solid fa-road"></i></span>
+        <span>Road Watch</span>
+      </a>
+      <nav class="nav">
+        <a href="home.html">Home</a>
+        <a href="dashboard.html" class="active">Dashboard</a>
+        <a href="results.html">Results</a>
+        <a href="about.html">About</a>
+      </nav>
+    </div>
+
+    <section class="hero">
+      <div class="panel headline">
+        <span class="eyebrow"><i class="fa-solid fa-road"></i> Road Watch Ops Console</span>
+        <h1>One dashboard for dashcam, photo, and video inspection.</h1>
+        <p>Use the same detection engine across uploaded road videos, single photos, and live browser camera feeds. Reports and exports stay in one flow.</p>
+        <div class="mini-grid">
+          <div class="mini-card">
+            <span>Video jobs</span>
+            <strong>Batch upload</strong>
+            <small>MJPEG playback with CSV, PDF, KML, and archive export.</small>
+          </div>
+          <div class="mini-card">
+            <span>Photo scans</span>
+            <strong>Instant result</strong>
+            <small>Single-image pothole analysis with annotated output.</small>
+          </div>
+          <div class="mini-card">
+            <span>Live dashcam</span>
+            <strong>Browser capture</strong>
+            <small>Near real-time camera analysis with rolling session totals.</small>
+          </div>
+        </div>
+      </div>
+      <aside class="panel mission">
+        <h2>Capture lanes however you have them</h2>
+        <p>Choose a mode, feed road imagery into the same backend, and keep exports consistent across field surveys and ad hoc checks.</p>
+        <p>For browser live mode, the camera preview stays local while frames are sampled and sent to the backend for AI annotation.</p>
+        <div class="status-pill" id="statusPill"><i class="fa-solid fa-wave-square"></i><span id="statusText">Idle</span></div>
+      </aside>
+    </section>
+
+    <section class="layout">
+      <main class="panel workspace">
+        <div class="mode-bar">
+          <button class="mode-btn active" data-mode="video"><i class="fa-regular fa-file-video"></i> Video</button>
+          <button class="mode-btn" data-mode="photo"><i class="fa-regular fa-image"></i> Photo</button>
+          <button class="mode-btn" data-mode="live"><i class="fa-solid fa-camera"></i> Live Dashcam</button>
+        </div>
+
+        <div class="controls">
+          <form class="card form-card" id="videoCard">
+            <h2 class="section-title"><i class="fa-regular fa-file-video"></i> Video Analysis</h2>
+            <p class="section-copy">Upload a road inspection clip and stream the backend-annotated result while the session writes reports in the background.</p>
+            <div class="field-row">
+              <div class="field">
+                <label for="startCoords">Start GPS</label>
+                <input type="text" id="startCoords" placeholder="12.9716,77.5946" />
+              </div>
+              <div class="field">
+                <label for="endCoords">End GPS</label>
+                <input type="text" id="endCoords" placeholder="12.9768,77.6021" />
+              </div>
+              <div class="field-wide">
+                <label for="videoFile">Road video</label>
+                <input type="file" id="videoFile" accept="video/*" />
+              </div>
+            </div>
+            <div class="action-row">
+              <button class="button" type="submit"><i class="fa-solid fa-bolt"></i> Upload and Run</button>
+              <button class="button ghost" type="button" id="resetVideoBtn"><i class="fa-solid fa-rotate-left"></i> Clear</button>
+            </div>
+          </form>
+
+          <form class="card form-card" id="photoCard" hidden>
+            <h2 class="section-title"><i class="fa-regular fa-image"></i> Photo Analysis</h2>
+            <p class="section-copy">Upload a still road photo to get an annotated image, detection summary, snapshots, CSV, and an export archive.</p>
+            <div class="field-row">
+              <div class="field-wide">
+                <label for="photoFile">Road photo</label>
+                <input type="file" id="photoFile" accept="image/*" />
+              </div>
+            </div>
+            <div class="action-row">
+              <button class="button secondary" type="submit"><i class="fa-solid fa-magnifying-glass"></i> Analyze Photo</button>
+              <button class="button ghost" type="button" id="resetPhotoBtn"><i class="fa-solid fa-rotate-left"></i> Clear</button>
+            </div>
+          </form>
+
+          <section class="card form-card" id="liveCard" hidden>
+            <h2 class="section-title"><i class="fa-solid fa-camera"></i> Live Dashcam</h2>
+            <p class="section-copy">Use your browser camera as a dashcam-style input. Frames are sampled and posted to the backend for analysis while the raw camera stays local.</p>
+            <div class="field-row">
+              <div class="field">
+                <label for="liveProfile">Live profile</label>
+                <select id="liveProfile">
+                  <option value="balanced" selected>Balanced</option>
+                  <option value="fast">Fast</option>
+                  <option value="detail">Detail</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="liveInterval">Frame interval</label>
+                <select id="liveInterval">
+                  <option value="250">250 ms</option>
+                  <option value="350" selected>350 ms</option>
+                  <option value="500">500 ms</option>
+                </select>
+              </div>
+              <div class="field-wide">
+                <label for="liveSourceName">Capture note</label>
+                <input type="text" id="liveSourceName" placeholder="Field car / browser camera" />
+              </div>
+            </div>
+            <div class="action-row">
+              <button class="button secondary" type="button" id="startLiveBtn"><i class="fa-solid fa-play"></i> Start Camera</button>
+              <button class="button warn disabled" type="button" id="stopLiveBtn"><i class="fa-solid fa-stop"></i> Stop and Save</button>
+              <button class="button ghost" type="button" id="resetLiveBtn"><i class="fa-solid fa-rotate-left"></i> Reset View</button>
+            </div>
+          </section>
+        </div>
+
+        <section class="stage">
+          <div class="stage-badge"><i class="fa-solid fa-satellite-dish"></i><span id="stageMode">Video output</span></div>
+          <div class="placeholder" id="stagePlaceholder">
+            <div>
+              <i class="fa-solid fa-road fa-3x"></i>
+              <strong>Select a mode and start an analysis job.</strong>
+              <div>Video shows MJPEG output, photo shows one annotated image, and live dashcam samples browser camera frames through the backend.</div>
+            </div>
+          </div>
+          <img id="analysisFeed" alt="Analysis output" />
+          <div class="live-inset" id="liveInset">
+            <video id="cameraPreview" autoplay muted playsinline></video>
+          </div>
+          <canvas id="captureCanvas" class="hidden"></canvas>
+        </section>
+      </main>
+
+      <aside class="panel side">
+        <section class="card">
+          <h2 class="section-title"><i class="fa-solid fa-chart-column"></i> Session Stats</h2>
+          <div class="stat-grid">
+            <div class="stat"><span>Mode</span><strong id="statMode">Video</strong></div>
+            <div class="stat"><span>Session</span><strong id="sessionId">--</strong></div>
+            <div class="stat"><span>Detections</span><strong id="detectionCount">0</strong></div>
+            <div class="stat"><span>Total Area</span><strong id="totalArea">0.00 m2</strong></div>
+            <div class="stat"><span>Avg Confidence</span><strong id="avgConfidence">0.00</strong></div>
+            <div class="stat"><span>Video FPS</span><strong id="videoFps">0.00</strong></div>
+            <div class="stat"><span>Processing FPS</span><strong id="procFps">0.00</strong></div>
+            <div class="stat"><span>ETA</span><strong id="eta">--:--</strong></div>
+            <div class="stat"><span>Last Frame Cost</span><strong id="frameCost">--</strong></div>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2 class="section-title"><i class="fa-solid fa-wand-magic-sparkles"></i> AI Insights</h2>
+          <div class="insight-hero">
+            <div>
+              <span class="score-kicker">Road Health Score</span>
+              <strong class="score-value" id="healthScore">100</strong>
+              <span class="score-band" id="healthBand">Excellent</span>
+            </div>
+            <span class="priority-pill low" id="priorityPill">Low</span>
+          </div>
+          <p class="hint" id="insightHeadline">Road surface looks clear.</p>
+          <p class="hint" id="recommendedAction">No immediate maintenance signal. Keep monitoring with routine captures.</p>
+          <div class="insight-grid">
+            <div class="insight-tile"><span>Unique Hazards</span><strong id="uniqueHazards">0</strong></div>
+            <div class="insight-tile"><span>Top Severity</span><strong id="topSeverity">None</strong></div>
+            <div class="insight-tile"><span>Hotspots</span><strong id="hotspotCount">0</strong></div>
+          </div>
+          <div class="severity-row" id="severityBreakdown"></div>
+          <div class="insight-block">
+            <h3>Hotspots</h3>
+            <div class="insight-list" id="hotspotList"></div>
+          </div>
+          <div class="insight-block">
+            <h3>Highlights</h3>
+            <div class="insight-list" id="highlightList"></div>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2 class="section-title"><i class="fa-solid fa-file-export"></i> Results</h2>
+          <p class="hint">Exports unlock automatically when the current session has generated them.</p>
+          <div class="export-grid">
+            <a class="button disabled" id="mapViewBtn" href="#" target="_blank"><i class="fa-solid fa-map-location-dot"></i> Open Map</a>
+            <a class="button disabled" id="annotatedBtn" href="#" target="_blank"><i class="fa-regular fa-image"></i> Download Annotated</a>
+            <a class="button disabled" id="csvBtn" href="#" target="_blank"><i class="fa-regular fa-file-lines"></i> Export CSV</a>
+            <a class="button disabled" id="archiveBtn" href="#" target="_blank"><i class="fa-solid fa-box-archive"></i> Download Archive</a>
+            <a class="button disabled" id="pdfBtn" href="#" target="_blank"><i class="fa-regular fa-file-pdf"></i> Export PDF</a>
+            <a class="button disabled" id="kmlBtn" href="#" target="_blank"><i class="fa-solid fa-map-location-dot"></i> Export KML</a>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2 class="section-title"><i class="fa-solid fa-circle-info"></i> Backend</h2>
+          <p class="hint" id="backendLabel">Detecting backend...</p>
+          <p class="hint runtime-label" id="runtimeLabel">Runtime: checking device and tracker...</p>
+          <p class="hint">Live camera mode in this dashboard is browser-based. For full 25-35 FPS dashcam streaming, move to WebSocket, WebRTC, or a native capture client.</p>
+        </section>
+
+        <section class="card">
+          <div class="history-toolbar">
+            <h2 class="section-title"><i class="fa-solid fa-clock-rotate-left"></i> Recent Sessions</h2>
+            <div class="history-actions">
+              <button class="mini-btn" type="button" id="refreshHistoryBtn"><i class="fa-solid fa-rotate"></i> Refresh</button>
+              <button class="mini-btn danger" type="button" id="deleteAllHistoryBtn"><i class="fa-solid fa-trash"></i> Delete All</button>
+            </div>
+          </div>
+          <p class="hint">Reopen a completed video, photo, or live session without leaving the dashboard.</p>
+          <div class="session-list" id="recentSessions">
+            <div class="empty-state">Loading recent sessions...</div>
+          </div>
+        </section>
+      </aside>
+    </section>
+  </div>
+  <script>
+function detectBackend() {
+  const host = window.location.hostname;
+
+  if (window.location.protocol === "file:") return "http://localhost:7860";
+  if (host === "localhost") return "http://localhost:7860";
+  if (host === "127.0.0.1") return "http://127.0.0.1:7860";
+  if (host === "::1" || host === "[::1]") return "http://127.0.0.1:7860";
+
+  if (host.endsWith(".netlify.app")) {
+    return "https://YOUR-HF-SPACE.hf.space";
+  }
+
+  if (host.endsWith(".hf.space")) {
+    return window.location.origin;
+  }
+
+  return window.location.origin;
+}
+
+    const backend = detectBackend();
+    const state = {
+      mode: "video",
+      sessionId: null,
+      liveStream: null,
+      liveTimer: null,
+      liveBusy: false,
+      lastFrameCost: null,
+      liveConfig: null,
+      recentSessions: [],
+    };
+
+    const modeButtons = [...document.querySelectorAll(".mode-btn")];
+    const cards = {
+      video: document.getElementById("videoCard"),
+      photo: document.getElementById("photoCard"),
+      live: document.getElementById("liveCard"),
+    };
+
+    const statusPill = document.getElementById("statusPill");
+    const statusText = document.getElementById("statusText");
+    const analysisFeed = document.getElementById("analysisFeed");
+    const stagePlaceholder = document.getElementById("stagePlaceholder");
+    const stageMode = document.getElementById("stageMode");
+    const liveInset = document.getElementById("liveInset");
+    const cameraPreview = document.getElementById("cameraPreview");
+    const captureCanvas = document.getElementById("captureCanvas");
+    const backendLabel = document.getElementById("backendLabel");
+    const runtimeLabel = document.getElementById("runtimeLabel");
+    const recentSessionsEl = document.getElementById("recentSessions");
+    const refreshHistoryBtn = document.getElementById("refreshHistoryBtn");
+    const deleteAllHistoryBtn = document.getElementById("deleteAllHistoryBtn");
+
+    const sessionIdEl = document.getElementById("sessionId");
+    const statModeEl = document.getElementById("statMode");
+    const detectionCountEl = document.getElementById("detectionCount");
+    const totalAreaEl = document.getElementById("totalArea");
+    const avgConfidenceEl = document.getElementById("avgConfidence");
+    const videoFpsEl = document.getElementById("videoFps");
+    const procFpsEl = document.getElementById("procFps");
+    const etaEl = document.getElementById("eta");
+    const frameCostEl = document.getElementById("frameCost");
+    const healthScoreEl = document.getElementById("healthScore");
+    const healthBandEl = document.getElementById("healthBand");
+    const priorityPillEl = document.getElementById("priorityPill");
+    const uniqueHazardsEl = document.getElementById("uniqueHazards");
+    const topSeverityEl = document.getElementById("topSeverity");
+    const hotspotCountEl = document.getElementById("hotspotCount");
+    const insightHeadlineEl = document.getElementById("insightHeadline");
+    const recommendedActionEl = document.getElementById("recommendedAction");
+    const severityBreakdownEl = document.getElementById("severityBreakdown");
+    const hotspotListEl = document.getElementById("hotspotList");
+    const highlightListEl = document.getElementById("highlightList");
+
+    const mapViewBtn = document.getElementById("mapViewBtn");
+    const annotatedBtn = document.getElementById("annotatedBtn");
+    const csvBtn = document.getElementById("csvBtn");
+    const archiveBtn = document.getElementById("archiveBtn");
+    const pdfBtn = document.getElementById("pdfBtn");
+    const kmlBtn = document.getElementById("kmlBtn");
+    const startLiveBtn = document.getElementById("startLiveBtn");
+    const stopLiveBtn = document.getElementById("stopLiveBtn");
+    const defaultPlaceholderMarkup = stagePlaceholder.innerHTML;
+
+    backendLabel.textContent = `Backend: ${backend}`;
+
+    function resolveUrl(maybeUrl) {
+      if (!maybeUrl) return null;
+      if (maybeUrl.startsWith("http://") || maybeUrl.startsWith("https://") || maybeUrl.startsWith("data:")) return maybeUrl;
+      if (maybeUrl.startsWith("/")) return backend.replace(/\/$/, "") + maybeUrl;
+      return backend.replace(/\/$/, "") + "/" + maybeUrl;
+    }
+
+    function safeFixed(value, digits = 2) {
+      const num = Number(value);
+      return Number.isFinite(num) ? num.toFixed(digits) : "0.00";
+    }
+
+    function severityCountMap(counts = {}) {
+      return {
+        Minor: Number(counts.Minor || 0),
+        Moderate: Number(counts.Moderate || 0),
+        Major: Number(counts.Major || 0),
+        Severe: Number(counts.Severe || 0),
+      };
+    }
+
+    function priorityTone(priority) {
+      const value = String(priority || "").toLowerCase();
+      if (value === "critical") return "critical";
+      if (value === "high") return "high";
+      if (value === "moderate") return "moderate";
+      return "low";
+    }
+
+    function formatEta(seconds) {
+      const num = Number(seconds);
+      if (!Number.isFinite(num) || num < 0) return "--:--";
+      const mins = Math.floor(num / 60);
+      const secs = Math.floor(num % 60);
+      return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+    }
+
+    function formatDate(epochSeconds) {
+      const millis = Number(epochSeconds) * 1000;
+      if (!Number.isFinite(millis) || millis <= 0) return "Unknown time";
+      return new Date(millis).toLocaleString();
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function normalizeMode(sourceType) {
+      if (sourceType === "photo" || sourceType === "live") return sourceType;
+      return "video";
+    }
+
+    function describeSourceType(sourceType) {
+      if (sourceType === "photo") return { icon: "fa-image", label: "Photo", tone: "photo" };
+      if (sourceType === "live") return { icon: "fa-camera", label: "Live", tone: "live" };
+      return { icon: "fa-file-video", label: "Video", tone: "video" };
+    }
+
+    async function fetchJson(url, options) {
+      try {
+        const res = await fetch(url, options);
+        const data = await res.json().catch(() => ({}));
+        return { ok: res.ok, data };
+      } catch (error) {
+        return { ok: false, data: { error: error.message } };
+      }
+    }
+
+    function setStatus(text, tone = "idle") {
+      statusText.textContent = text;
+      statusPill.classList.remove("live", "error");
+      if (tone === "live") statusPill.classList.add("live");
+      if (tone === "error") statusPill.classList.add("error");
+    }
+
+    function buildLiveProfileConfig(profile) {
+      const profiles = {
+        fast: {
+          frame_width: 640,
+          frame_height: 360,
+          inference_size: 512,
+          jpeg_quality: 68,
+          use_tracking: false,
+          save_snapshots: false,
+        },
+        balanced: {
+          frame_width: 960,
+          frame_height: 540,
+          inference_size: 640,
+          jpeg_quality: 78,
+          use_tracking: true,
+          save_snapshots: false,
+        },
+        detail: {
+          frame_width: 1280,
+          frame_height: 720,
+          inference_size: 768,
+          jpeg_quality: 86,
+          use_tracking: true,
+          save_snapshots: true,
+        },
+      };
+      return profiles[profile] || profiles.balanced;
+    }
+
+    function setButtonState(el, enabled, href = "#") {
+      el.href = enabled ? href : "#";
+      el.classList.toggle("disabled", !enabled);
+    }
+
+    function clearExports() {
+      [mapViewBtn, annotatedBtn, csvBtn, archiveBtn, pdfBtn, kmlBtn].forEach((el) => setButtonState(el, false));
+    }
+
+    function buildResultsMapUrl(sessionId) {
+      if (!sessionId) return "#";
+      try {
+        return new URL(`results.html?sid=${encodeURIComponent(sessionId)}`, window.location.href).toString();
+      } catch (error) {
+        return `results.html?sid=${encodeURIComponent(sessionId)}`;
+      }
+    }
+
+    function updateModeLabel() {
+      const labels = { video: "Video", photo: "Photo", live: "Live Dashcam" };
+      statModeEl.textContent = labels[state.mode];
+      stageMode.textContent = `${labels[state.mode]} output`;
+    }
+
+    function updateStats(values = {}) {
+      if (values.total_detections != null) detectionCountEl.textContent = String(values.total_detections);
+      if (values.detections != null) detectionCountEl.textContent = String(values.detections);
+      if (values.total_area != null) totalAreaEl.textContent = `${safeFixed(values.total_area)} m2`;
+      if (values.avg_confidence != null) avgConfidenceEl.textContent = safeFixed(values.avg_confidence, 3);
+      if (values.average_confidence != null) avgConfidenceEl.textContent = safeFixed(values.average_confidence, 3);
+      if (values.video_fps != null) videoFpsEl.textContent = safeFixed(values.video_fps);
+      if (values.processing_fps != null) procFpsEl.textContent = safeFixed(values.processing_fps);
+      if (values.estimated_time_left_s != null) etaEl.textContent = formatEta(values.estimated_time_left_s);
+      frameCostEl.textContent = state.lastFrameCost != null ? `${safeFixed(state.lastFrameCost, 1)} ms` : "--";
+      updateInsights(values);
+    }
+
+    function resetStats() {
+      detectionCountEl.textContent = "0";
+      totalAreaEl.textContent = "0.00 m2";
+      avgConfidenceEl.textContent = "0.00";
+      videoFpsEl.textContent = "0.00";
+      procFpsEl.textContent = "0.00";
+      etaEl.textContent = "--:--";
+      frameCostEl.textContent = "--";
+      state.lastFrameCost = null;
+      resetInsights();
+    }
+
+    function renderSeverityBreakdown(counts) {
+      const normalized = severityCountMap(counts);
+      severityBreakdownEl.innerHTML = Object.entries(normalized).map(([label, count]) => {
+        return `<span class="severity-chip ${label.toLowerCase()}">${label} <strong>${count}</strong></span>`;
+      }).join("");
+    }
+
+    function renderInsightItems(container, items, emptyText, formatter) {
+      if (!Array.isArray(items) || !items.length) {
+        container.innerHTML = `<div class="insight-item"><small>${escapeHtml(emptyText)}</small></div>`;
+        return;
+      }
+      container.innerHTML = items.map(formatter).join("");
+    }
+
+    function updateInsights(values = {}) {
+      if (values.road_health_score != null) healthScoreEl.textContent = String(values.road_health_score);
+      if (values.health_band) healthBandEl.textContent = values.health_band;
+      if (values.maintenance_priority) {
+        priorityPillEl.textContent = values.maintenance_priority;
+        priorityPillEl.className = `priority-pill ${priorityTone(values.maintenance_priority)}`;
+      }
+      if (values.unique_hazards != null) uniqueHazardsEl.textContent = String(values.unique_hazards);
+      if (values.top_severity) topSeverityEl.textContent = values.top_severity;
+      if (values.hotspot_count != null) hotspotCountEl.textContent = String(values.hotspot_count);
+      if (values.insight_headline) insightHeadlineEl.textContent = values.insight_headline;
+      if (values.recommended_action) recommendedActionEl.textContent = values.recommended_action;
+      if (values.severity_counts) renderSeverityBreakdown(values.severity_counts);
+      if (values.hotspots) {
+        renderInsightItems(hotspotListEl, values.hotspots, "No hotspots detected yet.", (item) => {
+          return `<div class="insight-item"><strong>${escapeHtml(item.label || "Hotspot")}</strong><small>${Number(item.count || 0)} detections | ${safeFixed(item.total_area)} m2 | ${escapeHtml(item.top_severity || "Minor")}</small></div>`;
+        });
+      }
+      if (values.highlights) {
+        renderInsightItems(highlightListEl, values.highlights, "No standout defects yet.", (item) => {
+          return `<div class="insight-item"><strong>${escapeHtml(item.title || "Detection highlight")}</strong><small>${safeFixed(item.area_m2)} m2 | conf ${safeFixed(item.confidence, 3)} | ${escapeHtml(item.location_label || item.time_label || "Unknown")}</small></div>`;
+        });
+      }
+    }
+
+    function resetInsights() {
+      healthScoreEl.textContent = "100";
+      healthBandEl.textContent = "Excellent";
+      priorityPillEl.textContent = "Low";
+      priorityPillEl.className = "priority-pill low";
+      uniqueHazardsEl.textContent = "0";
+      topSeverityEl.textContent = "None";
+      hotspotCountEl.textContent = "0";
+      insightHeadlineEl.textContent = "Road surface looks clear.";
+      recommendedActionEl.textContent = "No immediate maintenance signal. Keep monitoring with routine captures.";
+      renderSeverityBreakdown(severityCountMap({}));
+      renderInsightItems(hotspotListEl, [], "No hotspots detected yet.", () => "");
+      renderInsightItems(highlightListEl, [], "No standout defects yet.", () => "");
+    }
+
+    function setAnalysisImage(src) {
+      const resolved = resolveUrl(src);
+      if (!resolved) return;
+      analysisFeed.src = resolved;
+      analysisFeed.classList.add("active");
+      stagePlaceholder.classList.add("hidden");
+    }
+
+    function setStagePlaceholder(title, copy, iconClass = "fa-solid fa-road") {
+      analysisFeed.src = "";
+      analysisFeed.classList.remove("active");
+      cameraPreview.classList.remove("active");
+      liveInset.classList.remove("active");
+      stagePlaceholder.innerHTML = `
+        <div>
+          <i class="${iconClass} fa-3x"></i>
+          <strong>${escapeHtml(title)}</strong>
+          <div>${escapeHtml(copy)}</div>
+        </div>
+      `;
+      stagePlaceholder.classList.remove("hidden");
+    }
+
+    function clearStage() {
+      analysisFeed.src = "";
+      analysisFeed.classList.remove("active");
+      cameraPreview.classList.remove("active");
+      liveInset.classList.remove("active");
+      stagePlaceholder.innerHTML = defaultPlaceholderMarkup;
+      stagePlaceholder.classList.remove("hidden");
+    }
+
+    function applyReport(report) {
+      if (!report || report.error) return;
+      const hasMap = Boolean(report.has_map || Number(report.gps_detection_count || 0) > 0 || report.kml_url);
+      setButtonState(mapViewBtn, hasMap && Boolean(report.session_id), buildResultsMapUrl(report.session_id));
+      setButtonState(csvBtn, Boolean(report.csv_url), resolveUrl(report.csv_url));
+      setButtonState(archiveBtn, Boolean(report.archive_url), resolveUrl(report.archive_url));
+      setButtonState(pdfBtn, Boolean(report.pdf_url), resolveUrl(report.pdf_url));
+      setButtonState(kmlBtn, Boolean(report.kml_url), resolveUrl(report.kml_url));
+      setButtonState(annotatedBtn, Boolean(report.annotated_url), resolveUrl(report.annotated_url));
+      updateStats(report);
+    }
+
+    function renderRecentSession(item) {
+      const type = describeSourceType(item.source_type);
+      const generatedAt = formatDate(item.generated_at || item.last_activity || item.created_at || item.manifest_mtime);
+      const title = escapeHtml(item.video_name || item.session_id || "Unnamed session");
+      const confidence = safeFixed(item.average_confidence ?? item.avg_confidence, 3);
+      const activeClass = item.session_id && item.session_id === state.sessionId ? " active" : "";
+      const annotatedLink = item.annotated_url
+        ? `<a class="mini-btn" href="${resolveUrl(item.annotated_url)}" target="_blank"><i class="fa-regular fa-image"></i> Annotated</a>`
+        : "";
+      const archiveLink = item.archive_url
+        ? `<a class="mini-btn" href="${resolveUrl(item.archive_url)}" target="_blank"><i class="fa-solid fa-box-archive"></i> Archive</a>`
+        : "";
+
+      return `
+        <article class="session-item${activeClass}">
+          <div class="session-row">
+            <span class="session-badge ${type.tone}"><i class="fa-solid ${type.icon}"></i>${type.label}</span>
+            <span class="session-time">${escapeHtml(generatedAt)}</span>
+          </div>
+          <div class="session-name">${title}</div>
+          <div class="session-meta">${Number(item.total_detections ?? 0)} detections | ${safeFixed(item.total_area)} m2 | avg ${confidence}</div>
+          <div class="session-meta">Score ${Number(item.road_health_score ?? 100)} | ${escapeHtml(item.maintenance_priority || "Low")} priority | ${escapeHtml(item.top_severity || "None")}</div>
+          <div class="session-actions">
+            <button class="mini-btn primary" type="button" data-open-session="${escapeHtml(item.session_id)}"><i class="fa-solid fa-arrow-up-right-from-square"></i> Open</button>
+            ${annotatedLink}
+            ${archiveLink}
+            <button class="mini-btn danger" type="button" data-delete-session="${escapeHtml(item.session_id)}"><i class="fa-solid fa-trash"></i> Delete</button>
+          </div>
+        </article>
+      `;
+    }
+
+    async function loadRecentSessions() {
+      const res = await fetchJson(`${backend}/recent_reports?limit=8`, { cache: "no-store" });
+      if (!res.ok) {
+        recentSessionsEl.innerHTML = `<div class="empty-state">Could not load recent sessions from the backend.</div>`;
+        return;
+      }
+
+      const items = Array.isArray(res.data.items) ? res.data.items : [];
+      state.recentSessions = items;
+      if (!items.length) {
+        recentSessionsEl.innerHTML = `<div class="empty-state">No completed sessions yet. Run a photo, video, or live job to populate this list.</div>`;
+        return;
+      }
+
+      recentSessionsEl.innerHTML = items.map(renderRecentSession).join("");
+    }
+
+    async function refreshHealth() {
+      const res = await fetchJson(`${backend}/health`, { cache: "no-store" });
+      if (!res.ok) {
+        runtimeLabel.textContent = "Runtime: backend health endpoint unavailable.";
+        return;
+      }
+
+      const runtime = res.data.gpu ? `GPU on ${res.data.device}` : `CPU on ${res.data.device}`;
+      const tracker = res.data.tracker || "default";
+      const activeSessions = Number(res.data.active_sessions ?? 0);
+      runtimeLabel.textContent = `Runtime: ${runtime}, tracker ${tracker}, active sessions ${activeSessions}.`;
+    }
+
+    async function deleteSessionRecord(sessionId) {
+      if (!sessionId) return;
+      if (!window.confirm(`Delete session ${sessionId} and all files linked to it?`)) return;
+      setStatus(`Deleting ${sessionId}...`);
+      const res = await fetchJson(`${backend}/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+      if (!res.ok) {
+        setStatus("Session delete failed", "error");
+        return;
+      }
+
+      if (state.sessionId === sessionId) {
+        resetSession();
+      }
+      await loadRecentSessions();
+      await refreshHealth();
+      setStatus(`Deleted session ${sessionId}`);
+    }
+
+    async function deleteAllHistory() {
+      if (!window.confirm("Delete all saved sessions and generated files?")) return;
+      if (state.mode === "live" && (state.liveStream || state.liveTimer)) {
+        await stopLiveSession(false);
+      }
+      setStatus("Deleting all saved sessions...");
+      const res = await fetchJson(`${backend}/sessions`, { method: "DELETE" });
+      if (!res.ok) {
+        setStatus("Delete all failed", "error");
+        return;
+      }
+
+      resetSession();
+      state.recentSessions = [];
+      recentSessionsEl.innerHTML = `<div class="empty-state">No completed sessions yet. Run a photo, video, or live job to populate this list.</div>`;
+      await refreshHealth();
+      setStatus(`Deleted ${res.data.deleted_sessions || 0} sessions`);
+    }
+
+    function resetSession() {
+      state.sessionId = null;
+      state.liveConfig = null;
+      sessionIdEl.textContent = "--";
+      clearExports();
+      resetStats();
+      clearStage();
+    }
+
+    async function stopLiveSession(saveReport = true) {
+      if (state.liveTimer) {
+        clearInterval(state.liveTimer);
+        state.liveTimer = null;
+      }
+      state.liveBusy = false;
+      if (state.liveStream) {
+        state.liveStream.getTracks().forEach((track) => track.stop());
+        state.liveStream = null;
+      }
+      cameraPreview.srcObject = null;
+      cameraPreview.classList.remove("active");
+      liveInset.classList.remove("active");
+      startLiveBtn.classList.remove("disabled");
+      stopLiveBtn.classList.add("disabled");
+
+      if (saveReport && state.sessionId) {
+        const res = await fetchJson(`${backend}/live/stop/${state.sessionId}`, { method: "POST" });
+        if (res.ok) {
+          applyReport(res.data);
+          setStatus("Live session saved");
+          loadRecentSessions();
+        } else {
+          setStatus("Live session stop failed", "error");
+        }
+      }
+    }
+
+    async function activateMode(mode) {
+      if (state.mode === "live" && mode !== "live" && (state.liveStream || state.liveTimer)) {
+        await stopLiveSession(true);
+      }
+      state.mode = mode;
+      modeButtons.forEach((button) => button.classList.toggle("active", button.dataset.mode === mode));
+      Object.entries(cards).forEach(([key, card]) => {
+        card.hidden = key !== mode;
+      });
+      updateModeLabel();
+      resetSession();
+      setStatus("Idle");
+    }
+
+    modeButtons.forEach((button) => {
+      button.addEventListener("click", async () => activateMode(button.dataset.mode));
+    });
+
+    document.getElementById("resetVideoBtn").addEventListener("click", () => {
+      document.getElementById("videoFile").value = "";
+      document.getElementById("startCoords").value = "";
+      document.getElementById("endCoords").value = "";
+      resetSession();
+      setStatus("Idle");
+    });
+
+    document.getElementById("resetPhotoBtn").addEventListener("click", () => {
+      document.getElementById("photoFile").value = "";
+      resetSession();
+      setStatus("Idle");
+    });
+
+    document.getElementById("resetLiveBtn").addEventListener("click", async () => {
+      await stopLiveSession(false);
+      resetSession();
+      setStatus("Idle");
+    });
+
+    document.getElementById("videoCard").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const file = document.getElementById("videoFile").files[0];
+      if (!file) {
+        setStatus("Select a video first", "error");
+        return;
+      }
+
+      resetSession();
+      setStatus("Uploading video...");
+      const formData = new FormData();
+      formData.append("video", file);
+      const startCoords = document.getElementById("startCoords").value.trim();
+      const endCoords = document.getElementById("endCoords").value.trim();
+      if (startCoords) formData.append("start_coords", startCoords);
+      if (endCoords) formData.append("end_coords", endCoords);
+
+      const res = await fetchJson(`${backend}/upload`, { method: "POST", body: formData });
+      if (!res.ok) {
+        setStatus("Video upload failed", "error");
+        return;
+      }
+
+      state.sessionId = res.data.session_id;
+      sessionIdEl.textContent = state.sessionId;
+      setStatus("Video uploaded. Starting analysis...");
+      setAnalysisImage(`${backend}/video_feed/${state.sessionId}?t=${Date.now()}`);
+    });
+
+    document.getElementById("photoCard").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const file = document.getElementById("photoFile").files[0];
+      if (!file) {
+        setStatus("Select a photo first", "error");
+        return;
+      }
+
+      resetSession();
+      setStatus("Analyzing photo...");
+      const formData = new FormData();
+      formData.append("photo", file);
+      const res = await fetchJson(`${backend}/upload_photo`, { method: "POST", body: formData });
+      if (!res.ok) {
+        setStatus("Photo analysis failed", "error");
+        return;
+      }
+
+      state.sessionId = res.data.session_id;
+      sessionIdEl.textContent = state.sessionId;
+      applyReport(res.data);
+      setAnalysisImage(res.data.annotated_url || res.data.image_data);
+      setStatus("Photo analyzed");
+      loadRecentSessions();
+    });
+
+    startLiveBtn.addEventListener("click", async () => {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setStatus("Camera API not available", "error");
+        return;
+      }
+
+      resetSession();
+      setStatus("Requesting camera...");
+      try {
+        state.liveStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" } },
+          audio: false,
+        });
+      } catch (error) {
+        setStatus("Camera permission denied", "error");
+        return;
+      }
+
+      cameraPreview.srcObject = state.liveStream;
+      cameraPreview.classList.add("active");
+      liveInset.classList.add("active");
+      stagePlaceholder.classList.add("hidden");
+      const liveProfile = document.getElementById("liveProfile").value;
+      const liveConfig = buildLiveProfileConfig(liveProfile);
+
+      const res = await fetchJson(`${backend}/live/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source_name: document.getElementById("liveSourceName").value.trim() || "browser_dashcam",
+          ...liveConfig,
+        }),
+      });
+      if (!res.ok) {
+        await stopLiveSession(false);
+        setStatus("Live session start failed", "error");
+        return;
+      }
+
+      state.sessionId = res.data.session_id;
+      state.liveConfig = res.data.live_config || liveConfig;
+      sessionIdEl.textContent = state.sessionId;
+      startLiveBtn.classList.add("disabled");
+      stopLiveBtn.classList.remove("disabled");
+      setStatus(`Live capture active (${liveProfile})`, "live");
+
+      const intervalMs = Number(document.getElementById("liveInterval").value || 350);
+      state.liveTimer = setInterval(sendLiveFrame, intervalMs);
+    });
+
+    stopLiveBtn.addEventListener("click", async () => {
+      await stopLiveSession(true);
+    });
+
+    refreshHistoryBtn.addEventListener("click", loadRecentSessions);
+    deleteAllHistoryBtn.addEventListener("click", deleteAllHistory);
+
+    recentSessionsEl.addEventListener("click", async (event) => {
+      const deleteButton = event.target.closest("[data-delete-session]");
+      if (deleteButton) {
+        await deleteSessionRecord(deleteButton.getAttribute("data-delete-session"));
+        return;
+      }
+
+      const button = event.target.closest("[data-open-session]");
+      if (!button) return;
+
+      const sid = button.getAttribute("data-open-session");
+      const item = state.recentSessions.find((entry) => entry.session_id === sid);
+      if (!item) return;
+
+      if (state.mode === "live" && (state.liveStream || state.liveTimer)) {
+        await stopLiveSession(true);
+      }
+
+      await activateMode(normalizeMode(item.source_type));
+      state.sessionId = item.session_id || null;
+      sessionIdEl.textContent = state.sessionId || "--";
+      applyReport(item);
+      updateStats(item);
+
+      if (item.annotated_url) {
+        setAnalysisImage(item.annotated_url);
+      } else if (item.source_type === "video") {
+        setStagePlaceholder(
+          "Video report loaded",
+          "This completed video session has exports recorded, but no saved preview frame to show here.",
+          "fa-solid fa-film"
+        );
+      } else {
+        setStagePlaceholder(
+          "Session loaded",
+          "This completed session has saved stats and exports, but no annotated preview image was recorded.",
+          "fa-solid fa-folder-open"
+        );
+      }
+
+      setStatus(`Loaded ${item.source_type || "session"} report`);
+      loadRecentSessions();
+    });
+
+    async function sendLiveFrame() {
+      if (!state.sessionId || !state.liveStream || state.liveBusy) return;
+      if (!cameraPreview.videoWidth || !cameraPreview.videoHeight) return;
+
+      state.liveBusy = true;
+      const cfg = state.liveConfig || buildLiveProfileConfig("balanced");
+      captureCanvas.width = cfg.frame_width || cameraPreview.videoWidth;
+      captureCanvas.height = cfg.frame_height || cameraPreview.videoHeight;
+      const ctx = captureCanvas.getContext("2d");
+      ctx.drawImage(cameraPreview, 0, 0, captureCanvas.width, captureCanvas.height);
+
+      captureCanvas.toBlob(async (blob) => {
+        try {
+          if (!blob) return;
+          const formData = new FormData();
+          formData.append("frame", blob, "frame.jpg");
+          const res = await fetchJson(`${backend}/live/frame/${state.sessionId}`, {
+            method: "POST",
+            body: formData,
+          });
+          if (!res.ok) {
+            setStatus("Live frame upload failed", "error");
+            return;
+          }
+
+          state.lastFrameCost = res.data.processing_ms;
+          updateStats({
+            total_detections: res.data.total_detections,
+            total_area: res.data.total_area,
+            avg_confidence: res.data.avg_confidence,
+            video_fps: res.data.video_fps,
+            processing_fps: res.data.processing_fps || (res.data.processing_ms ? 1000 / res.data.processing_ms : 0),
+          });
+          if (res.data.image_data) setAnalysisImage(res.data.image_data);
+        } finally {
+          state.liveBusy = false;
+        }
+      }, "image/jpeg", ((cfg.jpeg_quality || 78) / 100));
+    }
+
+    async function refreshStats() {
+      if (!state.sessionId) return;
+
+      const [det, prog, proc, last] = await Promise.all([
+        fetchJson(`${backend}/detection_count/${state.sessionId}`),
+        fetchJson(`${backend}/progress/${state.sessionId}`),
+        fetchJson(`${backend}/processing_status/${state.sessionId}`),
+        fetchJson(`${backend}/last_report/${state.sessionId}`),
+      ]);
+
+      if (det.ok) updateStats(det.data);
+      if (prog.ok) updateStats(prog.data);
+      if (proc.ok) {
+        if (proc.data.processing && state.mode === "live") setStatus("Live capture active", "live");
+        else if (proc.data.processing) setStatus("Processing...");
+        else if (state.mode === "video" && state.sessionId) {
+          if (proc.data.complete) setStatus("Video ready");
+          else if (proc.data.queued) setStatus("Video uploaded. Waiting for backend...");
+          else setStatus("Video uploaded");
+        }
+      }
+      if (last.ok) applyReport(last.data);
+    }
+
+    setInterval(refreshStats, 1000);
+    setInterval(() => {
+      refreshHealth();
+      loadRecentSessions();
+    }, 15000);
+    refreshHealth();
+    loadRecentSessions();
+    resetInsights();
+    activateMode("video");
+  </script>
+</body>
+</html>

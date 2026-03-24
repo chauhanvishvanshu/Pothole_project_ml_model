@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Road Watch Results</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <style>
+    :root {
+      --ink: #102033;
+      --muted: #5f6f82;
+      --line: rgba(16, 32, 51, 0.1);
+      --blue: #165dff;
+      --blue-deep: #0d2d6c;
+      --surface: rgba(255, 255, 255, 0.94);
+      --bg: linear-gradient(180deg, #eff5ff 0%, #f8fafc 100%);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Inter", sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+    }
+    .shell {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 24px 18px 42px;
+    }
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: inherit;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      font-size: 1.2rem;
+    }
+    .brand-badge {
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      background: linear-gradient(135deg, var(--blue), var(--blue-deep));
+    }
+    .nav {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .nav a {
+      text-decoration: none;
+      color: var(--ink);
+      padding: 10px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.78);
+      font-weight: 600;
+    }
+    .nav a.active {
+      color: #fff;
+      background: linear-gradient(135deg, var(--blue), var(--blue-deep));
+      border-color: transparent;
+    }
+    .hero {
+      background: linear-gradient(135deg, rgba(22, 93, 255, 0.96), rgba(13, 45, 108, 0.96));
+      color: #fff;
+      border-radius: 28px;
+      padding: 28px;
+      box-shadow: 0 20px 48px rgba(22, 93, 255, 0.2);
+      margin-bottom: 20px;
+    }
+    .hero h1 {
+      margin: 0 0 10px;
+      font-size: clamp(2rem, 4vw, 3.2rem);
+      line-height: 0.96;
+      letter-spacing: -0.05em;
+    }
+    .hero p {
+      margin: 0;
+      max-width: 760px;
+      color: rgba(255, 255, 255, 0.88);
+      line-height: 1.6;
+    }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 18px;
+    }
+    .meta-chip {
+      padding: 10px 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.14);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      font-size: 0.92rem;
+    }
+    .toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+    .toolbar p {
+      margin: 0;
+      color: var(--muted);
+    }
+    .toolbar-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .button {
+      border: none;
+      border-radius: 14px;
+      padding: 12px 16px;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+      color: #fff;
+      background: linear-gradient(135deg, var(--blue), var(--blue-deep));
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 14px 30px rgba(22, 93, 255, 0.16);
+    }
+    .button.danger {
+      background: linear-gradient(135deg, #ef4444, #991b1b);
+      box-shadow: 0 14px 30px rgba(239, 68, 68, 0.18);
+    }
+    .map-panel,
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      padding: 18px;
+      box-shadow: 0 16px 40px rgba(16, 32, 51, 0.08);
+    }
+    .map-panel {
+      margin-bottom: 18px;
+    }
+    .map-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    .map-head h2 {
+      margin: 0 0 6px;
+      font-size: 1.25rem;
+      letter-spacing: -0.03em;
+    }
+    .map-head p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .map-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #fff;
+      font-size: 0.82rem;
+      font-weight: 700;
+    }
+    .map-stage {
+      border-radius: 20px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      background: #eef4ff;
+      min-height: 420px;
+      position: relative;
+    }
+    #sessionMap {
+      height: 420px;
+      width: 100%;
+      display: none;
+    }
+    #sessionMap.active {
+      display: block;
+    }
+    .map-empty {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      color: var(--muted);
+      padding: 20px;
+      line-height: 1.6;
+    }
+    .map-empty.hidden {
+      display: none;
+    }
+    .results {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 16px;
+    }
+    .card.active {
+      border-color: rgba(22, 93, 255, 0.28);
+      box-shadow: 0 18px 42px rgba(22, 93, 255, 0.12);
+    }
+    .card-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: flex-start;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      background: #edf4ff;
+      color: var(--blue-deep);
+    }
+    .score-box {
+      min-width: 84px;
+      text-align: right;
+    }
+    .score-box span {
+      display: block;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .score-box strong {
+      font-size: 2rem;
+      line-height: 0.95;
+      letter-spacing: -0.05em;
+    }
+    .card h2 {
+      margin: 10px 0 6px;
+      font-size: 1.1rem;
+      letter-spacing: -0.03em;
+    }
+    .subtle {
+      color: var(--muted);
+      font-size: 0.92rem;
+      line-height: 1.5;
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin: 16px 0;
+    }
+    .stat {
+      padding: 12px;
+      border-radius: 16px;
+      background: #f7f9fc;
+      border: 1px solid var(--line);
+    }
+    .stat span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 5px;
+    }
+    .stat strong {
+      font-size: 1rem;
+    }
+    .card-actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 14px;
+    }
+    .links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      flex: 1 1 240px;
+    }
+    .priority-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    .priority-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border: 1px solid var(--line);
+    }
+    .priority-pill.low {
+      background: rgba(15, 118, 110, 0.12);
+      color: #0f766e;
+      border-color: rgba(15, 118, 110, 0.2);
+    }
+    .priority-pill.moderate {
+      background: rgba(245, 158, 11, 0.12);
+      color: #b45309;
+      border-color: rgba(245, 158, 11, 0.2);
+    }
+    .priority-pill.high,
+    .priority-pill.critical {
+      background: rgba(239, 68, 68, 0.12);
+      color: #b91c1c;
+      border-color: rgba(239, 68, 68, 0.2);
+    }
+    .band {
+      color: var(--muted);
+      font-weight: 700;
+      font-size: 0.88rem;
+    }
+    .severity-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+    .severity-chip {
+      padding: 8px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #fff;
+      font-size: 0.8rem;
+      font-weight: 700;
+    }
+    .severity-chip.minor {
+      color: #15803d;
+      border-color: rgba(34, 197, 94, 0.2);
+      background: rgba(240, 253, 244, 0.95);
+    }
+    .severity-chip.moderate {
+      color: #b45309;
+      border-color: rgba(245, 158, 11, 0.2);
+      background: rgba(255, 251, 235, 0.95);
+    }
+    .severity-chip.major {
+      color: #c2410c;
+      border-color: rgba(249, 115, 22, 0.2);
+      background: rgba(255, 237, 213, 0.95);
+    }
+    .severity-chip.severe {
+      color: #b91c1c;
+      border-color: rgba(239, 68, 68, 0.2);
+      background: rgba(254, 242, 242, 0.95);
+    }
+    .insight-panel {
+      margin-top: 14px;
+      display: grid;
+      gap: 10px;
+    }
+    .insight-line {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: rgba(247, 249, 252, 0.92);
+      padding: 12px;
+    }
+    .insight-line strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 0.88rem;
+    }
+    .delete-btn,
+    .link-btn {
+      border-radius: 12px;
+      padding: 10px 12px;
+      font: inherit;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      text-decoration: none;
+    }
+    .delete-btn {
+      border: 1px solid rgba(239, 68, 68, 0.2);
+      background: rgba(254, 242, 242, 0.96);
+      color: #b91c1c;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .link-btn {
+      color: var(--ink);
+      background: #fff;
+      border: 1px solid var(--line);
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
+    .empty {
+      padding: 26px;
+      border-radius: 22px;
+      border: 1px dashed var(--line);
+      background: rgba(255, 255, 255, 0.7);
+      text-align: center;
+      color: var(--muted);
+    }
+    @media (max-width: 720px) {
+      .stats { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="topbar">
+      <a class="brand" href="home.html">
+        <span class="brand-badge"><i class="fa-solid fa-road"></i></span>
+        <span>Road Watch</span>
+      </a>
+      <nav class="nav">
+        <a href="home.html">Home</a>
+        <a href="dashboard.html">Dashboard</a>
+        <a href="results.html" class="active">Results</a>
+        <a href="about.html">About</a>
+      </nav>
+    </div>
+
+    <section class="hero">
+      <h1>Completed scans in one place.</h1>
+      <p>Review recent video runs, photo scans, and live dashcam captures without browsing backend folders manually. Each card exposes the generated report assets directly.</p>
+      <div class="meta">
+        <div class="meta-chip" id="backendLabel">Backend: detecting...</div>
+        <div class="meta-chip" id="resultCount">0 sessions</div>
+      </div>
+    </section>
+
+    <div class="toolbar">
+      <p id="statusText">Loading recent reports...</p>
+      <div class="toolbar-actions">
+        <button class="button" id="refreshBtn"><i class="fa-solid fa-rotate"></i> Refresh</button>
+        <button class="button danger" id="deleteAllBtn"><i class="fa-solid fa-trash"></i> Delete All</button>
+      </div>
+    </div>
+
+    <section class="map-panel">
+      <div class="map-head">
+        <div>
+          <h2 id="mapTitle">Interactive session map</h2>
+          <p id="mapSubtitle">Select a session with GPS detections to inspect route points and hotspots.</p>
+          <div class="map-chips" id="mapChips">
+            <span class="chip">Map: idle</span>
+          </div>
+        </div>
+      </div>
+      <div class="map-stage">
+        <div class="map-empty" id="mapEmpty">
+          <div>
+            <i class="fa-solid fa-map-location-dot fa-2x"></i>
+            <p>Pick a session with GPS detections to open an interactive map here.</p>
+          </div>
+        </div>
+        <div id="sessionMap"></div>
+      </div>
+    </section>
+
+    <section class="results" id="resultsGrid"></section>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script>
+    function detectBackend() {
+      const host = window.location.hostname;
+      if (window.location.protocol === "file:") return "http://localhost:7860";
+      if (host === "localhost") return "http://localhost:7860";
+      if (host === "127.0.0.1") return "http://127.0.0.1:7860";
+      if (host === "::1" || host === "[::1]") return "http://127.0.0.1:7860";
+      if (host.endsWith(".netlify.app")) return "https://YOUR-HF-SPACE.hf.space";
+      if (host.endsWith(".hf.space")) return window.location.origin;
+      return "http://127.0.0.1:7860";
+    }
+
+    const backend = detectBackend();
+    const resultsGrid = document.getElementById("resultsGrid");
+    const statusText = document.getElementById("statusText");
+    const backendLabel = document.getElementById("backendLabel");
+    const resultCount = document.getElementById("resultCount");
+    const deleteAllBtn = document.getElementById("deleteAllBtn");
+    const mapTitle = document.getElementById("mapTitle");
+    const mapSubtitle = document.getElementById("mapSubtitle");
+    const mapChips = document.getElementById("mapChips");
+    const mapEmpty = document.getElementById("mapEmpty");
+    const sessionMapEl = document.getElementById("sessionMap");
+    backendLabel.textContent = `Backend: ${backend}`;
+
+    const selectedSidFromUrl = new URLSearchParams(window.location.search).get("sid");
+    const state = {
+      selectedSessionId: selectedSidFromUrl || null,
+      map: null,
+      mapLayers: [],
+    };
+
+    function resolveUrl(maybeUrl) {
+      if (!maybeUrl) return null;
+      if (maybeUrl.startsWith("http://") || maybeUrl.startsWith("https://") || maybeUrl.startsWith("data:")) return maybeUrl;
+      if (maybeUrl.startsWith("/")) return backend.replace(/\/$/, "") + maybeUrl;
+      return backend.replace(/\/$/, "") + "/" + maybeUrl;
+    }
+
+    function safeFixed(value, digits = 2) {
+      const num = Number(value);
+      return Number.isFinite(num) ? num.toFixed(digits) : "0.00";
+    }
+
+    function formatDate(epochSeconds) {
+      const millis = Number(epochSeconds) * 1000;
+      if (!Number.isFinite(millis) || millis <= 0) return "Unknown time";
+      return new Date(millis).toLocaleString();
+    }
+
+    function typeLabel(sourceType) {
+      if (sourceType === "live") return { icon: "fa-camera", text: "Live" };
+      if (sourceType === "photo") return { icon: "fa-image", text: "Photo" };
+      return { icon: "fa-file-video", text: "Video" };
+    }
+
+    function severityCountMap(counts = {}) {
+      return {
+        Minor: Number(counts.Minor || 0),
+        Moderate: Number(counts.Moderate || 0),
+        Major: Number(counts.Major || 0),
+        Severe: Number(counts.Severe || 0),
+      };
+    }
+
+    function priorityTone(priority) {
+      const value = String(priority || "").toLowerCase();
+      if (value === "critical") return "critical";
+      if (value === "high") return "high";
+      if (value === "moderate") return "moderate";
+      return "low";
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function buildLink(label, url, icon) {
+      if (!url) return "";
+      return `<a class="link-btn" href="${resolveUrl(url)}" target="_blank"><i class="fa-solid ${icon}"></i> ${label}</a>`;
+    }
+
+    function renderSeverityStrip(counts) {
+      const normalized = severityCountMap(counts);
+      return Object.entries(normalized).map(([label, count]) => {
+        return `<span class="severity-chip ${label.toLowerCase()}">${label} ${count}</span>`;
+      }).join("");
+    }
+
+    function hasMapData(item) {
+      return Boolean(item.has_map || Number(item.gps_detection_count || 0) > 0 || item.kml_url);
+    }
+
+    function ensureMap() {
+      if (state.map || !window.L) return state.map;
+      state.map = window.L.map("sessionMap", { scrollWheelZoom: true });
+      window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap contributors",
+      }).addTo(state.map);
+      return state.map;
+    }
+
+    function clearMapLayers() {
+      (state.mapLayers || []).forEach((layer) => {
+        try { layer.remove(); } catch (error) {}
+      });
+      state.mapLayers = [];
+    }
+
+    function severityColor(severity) {
+      if (severity === "Severe") return "#dc2626";
+      if (severity === "Major") return "#f97316";
+      if (severity === "Moderate") return "#f59e0b";
+      return "#16a34a";
+    }
+
+    function setMapEmpty(title, subtitle) {
+      clearMapLayers();
+      mapTitle.textContent = title;
+      mapSubtitle.textContent = subtitle;
+      mapChips.innerHTML = `<span class="chip">Map: unavailable</span>`;
+      mapEmpty.classList.remove("hidden");
+      sessionMapEl.classList.remove("active");
+    }
+
+    function renderMapPayload(payload) {
+      if (!window.L) {
+        setMapEmpty("Map library unavailable", "Leaflet could not be loaded in this environment.");
+        return;
+      }
+
+      const map = ensureMap();
+      clearMapLayers();
+      mapTitle.textContent = payload.video_name || payload.session_id || "Session map";
+      mapSubtitle.textContent = payload.insight_headline || "Detection route and hotspot view.";
+      mapChips.innerHTML = [
+        `<span class="chip">Score ${Number(payload.road_health_score ?? 100)}</span>`,
+        `<span class="chip">${escapeHtml(payload.maintenance_priority || "Low")} priority</span>`,
+        `<span class="chip">${Number(payload.gps_detection_count || 0)} GPS detections</span>`,
+      ].join("");
+
+      if (Array.isArray(payload.route) && payload.route.length > 1) {
+        const routeLayer = window.L.polyline(payload.route, { color: "#165dff", weight: 4, opacity: 0.55 });
+        routeLayer.addTo(map);
+        state.mapLayers.push(routeLayer);
+      }
+
+      (payload.detections || []).forEach((point) => {
+        const marker = window.L.circleMarker([point.lat, point.lon], {
+          radius: 6,
+          color: "#fff",
+          weight: 1.2,
+          fillColor: severityColor(point.severity),
+          fillOpacity: 0.82,
+        }).bindPopup(
+          `<strong>${escapeHtml(point.severity)} defect</strong><br>` +
+          `Area: ${safeFixed(point.area_m2)} m2<br>` +
+          `Confidence: ${safeFixed(point.confidence, 3)}<br>` +
+          `Time: ${escapeHtml(point.time_label || "Unknown")}`
+        );
+        marker.addTo(map);
+        state.mapLayers.push(marker);
+      });
+
+      (payload.hotspots || []).forEach((spot) => {
+        const hotspot = window.L.circle([spot.lat, spot.lon], {
+          radius: Math.max(10, Number(spot.count || 0) * 3),
+          color: severityColor(spot.top_severity),
+          weight: 2,
+          fillOpacity: 0.08,
+        }).bindTooltip(`${escapeHtml(spot.label || "Hotspot")} | ${Number(spot.count || 0)} detections`);
+        hotspot.addTo(map);
+        state.mapLayers.push(hotspot);
+      });
+
+      if (payload.bounds) {
+        map.fitBounds([
+          [payload.bounds.south, payload.bounds.west],
+          [payload.bounds.north, payload.bounds.east],
+        ], { padding: [24, 24] });
+      } else if (payload.center) {
+        map.setView([payload.center.lat, payload.center.lon], 15);
+      }
+
+      mapEmpty.classList.add("hidden");
+      sessionMapEl.classList.add("active");
+      setTimeout(() => map.invalidateSize(), 50);
+    }
+
+    async function openSessionMap(sessionId) {
+      if (!sessionId) return;
+      statusText.textContent = `Loading map for ${sessionId}...`;
+      try {
+        const res = await fetch(`${backend}/session_map/${encodeURIComponent(sessionId)}`, { cache: "no-store" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Map load failed");
+        state.selectedSessionId = sessionId;
+        try {
+          const url = new URL(window.location.href);
+          url.searchParams.set("sid", sessionId);
+          window.history.replaceState({}, "", url);
+        } catch (error) {}
+        renderMapPayload(data);
+        statusText.textContent = `Map loaded for ${sessionId}.`;
+        resultsGrid.querySelectorAll(".card").forEach((card) => {
+          card.classList.toggle("active", card.getAttribute("data-session-id") === sessionId);
+        });
+      } catch (error) {
+        setMapEmpty("Map unavailable", error.message || "This session does not have GPS data.");
+        statusText.textContent = `Map load failed: ${error.message}`;
+      }
+    }
+
+    function renderCard(item) {
+      const badge = typeLabel(item.source_type);
+      const title = escapeHtml(item.video_name || item.session_id || "Unnamed session");
+      const score = Number(item.road_health_score ?? 100);
+      const priority = item.maintenance_priority || "Low";
+      const highlights = Array.isArray(item.highlights) ? item.highlights.slice(0, 2) : [];
+      const hotspots = Array.isArray(item.hotspots) ? item.hotspots.slice(0, 2) : [];
+      const canMap = hasMapData(item);
+      const links = [
+        canMap ? `<button class="link-btn" type="button" data-open-map="${escapeHtml(item.session_id || "")}"><i class="fa-solid fa-map-location-dot"></i> View Map</button>` : "",
+        buildLink("Annotated", item.annotated_url, "fa-image"),
+        buildLink("CSV", item.csv_url, "fa-file-lines"),
+        buildLink("Archive", item.archive_url, "fa-box-archive"),
+        buildLink("PDF", item.pdf_url, "fa-file-pdf"),
+        buildLink("KML", item.kml_url, "fa-map-location-dot"),
+      ].filter(Boolean).join("");
+
+      return `
+        <article class="card${state.selectedSessionId && state.selectedSessionId === item.session_id ? " active" : ""}" data-session-id="${escapeHtml(item.session_id || "")}">
+          <div class="card-top">
+            <div>
+              <span class="badge"><i class="fa-solid ${badge.icon}"></i>${badge.text}</span>
+              <h2>${title}</h2>
+            </div>
+            <div class="score-box">
+              <span>Health Score</span>
+              <strong>${score}</strong>
+            </div>
+          </div>
+          <div class="priority-row">
+            <span class="priority-pill ${priorityTone(priority)}">${escapeHtml(priority)}</span>
+            <span class="band">${escapeHtml(item.health_band || "Excellent")}</span>
+          </div>
+          <div class="subtle">Session ID: ${escapeHtml(item.session_id || "--")}</div>
+          <div class="subtle">Generated: ${escapeHtml(formatDate(item.generated_at || item.last_activity || item.created_at || item.manifest_mtime))}</div>
+          <div class="subtle">${escapeHtml(item.insight_headline || "Road surface looks clear.")}</div>
+          <div class="stats">
+            <div class="stat"><span>Detections</span><strong>${item.total_detections ?? 0}</strong></div>
+            <div class="stat"><span>Total Area</span><strong>${safeFixed(item.total_area)} m2</strong></div>
+            <div class="stat"><span>Avg Conf</span><strong>${safeFixed(item.average_confidence ?? item.avg_confidence, 3)}</strong></div>
+          </div>
+          <div class="severity-strip">${renderSeverityStrip(item.severity_counts)}</div>
+          <div class="insight-panel">
+            <div class="insight-line">
+              <strong>Recommendation</strong>
+              <div class="subtle">${escapeHtml(item.recommended_action || "No immediate maintenance signal.")}</div>
+            </div>
+            <div class="insight-line">
+              <strong>Hotspots</strong>
+              <div class="subtle">${hotspots.length ? hotspots.map((spot) => `${escapeHtml(spot.label || "Hotspot")} (${Number(spot.count || 0)})`).join(" | ") : "No clustered hotspots recorded."}</div>
+            </div>
+            <div class="insight-line">
+              <strong>Highlights</strong>
+              <div class="subtle">${highlights.length ? highlights.map((hit) => `${escapeHtml(hit.title || "Highlight")} at ${escapeHtml(hit.location_label || hit.time_label || "Unknown")}`).join(" | ") : "No standout highlights recorded."}</div>
+            </div>
+          </div>
+          <div class="card-actions">
+            <div class="links">${links || `<span class="subtle">No exported assets recorded.</span>`}</div>
+            <button class="delete-btn" type="button" data-delete-session="${escapeHtml(item.session_id || "")}"><i class="fa-solid fa-trash"></i> Delete</button>
+          </div>
+        </article>
+      `;
+    }
+
+    async function deleteSession(sessionId) {
+      if (!sessionId) return;
+      if (!window.confirm(`Delete session ${sessionId} and all saved files for it?`)) return;
+      statusText.textContent = `Deleting ${sessionId}...`;
+      try {
+        const res = await fetch(`${backend}/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Delete failed");
+        statusText.textContent = `Deleted session ${sessionId}.`;
+        await loadRecentReports();
+      } catch (error) {
+        statusText.textContent = `Delete failed: ${error.message}`;
+      }
+    }
+
+    async function deleteAllSessions() {
+      if (!window.confirm("Delete all saved sessions and generated files?")) return;
+      statusText.textContent = "Deleting all sessions...";
+      try {
+        const res = await fetch(`${backend}/sessions`, { method: "DELETE" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Delete all failed");
+        statusText.textContent = `Deleted ${data.deleted_sessions ?? 0} sessions.`;
+        await loadRecentReports();
+      } catch (error) {
+        statusText.textContent = `Delete all failed: ${error.message}`;
+      }
+    }
+
+    async function loadRecentReports() {
+      statusText.textContent = "Loading recent reports...";
+      resultsGrid.innerHTML = "";
+      try {
+        const res = await fetch(`${backend}/recent_reports?limit=24`, { cache: "no-store" });
+        const data = await res.json();
+        const items = Array.isArray(data.items) ? data.items : [];
+        resultCount.textContent = `${items.length} sessions`;
+
+        if (!items.length) {
+          resultsGrid.innerHTML = `<div class="empty"><i class="fa-regular fa-folder-open fa-2x"></i><p>No completed sessions recorded yet. Run a video, photo, or live scan from the dashboard first.</p></div>`;
+          statusText.textContent = "No recent reports found.";
+          setMapEmpty("Interactive session map", "Select a session with GPS detections to inspect route points and hotspots.");
+          return;
+        }
+
+        resultsGrid.innerHTML = items.map(renderCard).join("");
+        statusText.textContent = `Showing ${items.length} recent sessions.`;
+        const selected = (state.selectedSessionId && items.find((item) => item.session_id === state.selectedSessionId && hasMapData(item)))
+          || items.find((item) => hasMapData(item));
+        if (selected) {
+          await openSessionMap(selected.session_id);
+        } else {
+          setMapEmpty("No mappable session yet", "These sessions do not contain GPS coordinates, so no route map can be drawn.");
+        }
+      } catch (error) {
+        resultsGrid.innerHTML = `<div class="empty"><i class="fa-solid fa-triangle-exclamation fa-2x"></i><p>Could not load recent reports from the backend.</p></div>`;
+        statusText.textContent = "Failed to load recent reports.";
+        setMapEmpty("Map unavailable", "Recent reports could not be loaded from the backend.");
+      }
+    }
+
+    document.getElementById("refreshBtn").addEventListener("click", loadRecentReports);
+    deleteAllBtn.addEventListener("click", deleteAllSessions);
+    resultsGrid.addEventListener("click", (event) => {
+      const mapButton = event.target.closest("[data-open-map]");
+      if (mapButton) {
+        openSessionMap(mapButton.getAttribute("data-open-map"));
+        return;
+      }
+      const button = event.target.closest("[data-delete-session]");
+      if (!button) return;
+      deleteSession(button.getAttribute("data-delete-session"));
+    });
+
+    loadRecentReports();
+  </script>
+</body>
+</html>

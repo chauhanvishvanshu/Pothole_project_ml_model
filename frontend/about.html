@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Road Watch - About Us</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts: Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        primary: '#1d4ed8',     /* intense blue */
+                        secondary: '#1e3a8a',   /* darker blue for text */
+                        accent: '#eff6ff',      /* very light blue background */
+                        textMain: '#111827',
+                        textMuted: '#6b7280',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-white text-slate-800 antialiased">
+
+    <!-- Navigation Bar -->
+    <nav class="border-b border-gray-100 sticky top-0 bg-white/95 backdrop-blur-sm z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <!-- Logo -->
+                <div class="flex items-center gap-3">
+                    <div class="bg-slate-800 text-white p-1.5 rounded-lg flex items-center justify-center">
+                        <i class="fa-solid fa-map text-lg"></i>
+                    </div>
+                    <a href="home.html" class="font-bold text-xl tracking-tight text-slate-900">Road Watch</a>
+                </div>
+
+                <!-- Desktop Menu -->
+                <div class="hidden md:flex items-center gap-1">
+                    <a href="home.html" class="text-slate-600 hover:text-blue-600 px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition">
+                        <i class="fa-solid fa-house"></i> Home
+                    </a>
+                    <a href="#" class="bg-blue-50 text-blue-700 px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition">
+                        <i class="fa-solid fa-circle-info"></i> About
+                    </a>
+                    <a href="dashboard.html" class="text-slate-600 hover:text-blue-600 px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition">
+                        <i class="fa-solid fa-chart-simple"></i> Dashboard
+                    </a>
+                </div>
+
+                <!-- Right Side Actions -->
+                <div class="hidden md:flex items-center gap-4">
+                    <a href="index.html" class="bg-blue-700 hover:bg-blue-800 text-white px-5 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition shadow-sm">
+                        <i class="fa-solid fa-arrow-right-to-bracket"></i> Login
+                    </a>
+                </div>
+
+                 <!-- Mobile menu button -->
+                 <div class="md:hidden flex items-center">
+                    <button id="mobile-menu-btn" class="text-slate-600 hover:text-blue-600 focus:outline-none">
+                        <i class="fa-solid fa-bars text-2xl"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Mobile Menu Panel -->
+        <div id="mobile-menu" class="hidden md:hidden border-t border-gray-100 bg-white">
+            <div class="px-2 pt-2 pb-3 space-y-1 sm:px-3">
+                <a href="home.html" class="text-gray-600 hover:bg-gray-50 hover:text-gray-900 block px-3 py-2 rounded-md text-base font-medium">Home</a>
+                <a href="#" class="bg-blue-50 text-blue-700 block px-3 py-2 rounded-md text-base font-medium">About</a>
+                <a href="dashboard.html" class="text-gray-600 hover:bg-gray-50 hover:text-gray-900 block px-3 py-2 rounded-md text-base font-medium">Dashboard</a>
+                <a href="index.html" class="text-gray-600 hover:bg-gray-50 hover:text-gray-900 block px-3 py-2 rounded-md text-base font-medium">Login</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main>
+        <!-- Hero Section -->
+        <section class="py-16 sm:py-24 bg-white">
+            <div class="max-w-7xl mx-auto px-4 text-center">
+                <h1 class="text-4xl sm:text-5xl font-bold text-slate-900 mb-6">
+                    Making Roads <span class="text-blue-600">Safer</span> & <span class="text-blue-600">Smarter</span>
+                </h1>
+                <p class="text-xl text-slate-500 max-w-3xl mx-auto leading-relaxed">
+                    Road Watch leverages cutting-edge computer vision and AI to automate road infrastructure inspection, enabling cities to fix problems faster and save millions.
+                </p>
+            </div>
+        </section>
+
+        <!-- Stats Section -->
+        <section class="bg-blue-700 py-12">
+            <div class="max-w-7xl mx-auto px-4">
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-8 text-center text-white">
+                    <div>
+                        <div class="text-4xl font-bold mb-2">98%</div>
+                        <div class="text-blue-200 text-sm uppercase tracking-wide">Detection Accuracy</div>
+                    </div>
+                    <div>
+                        <div class="text-4xl font-bold mb-2">10k+</div>
+                        <div class="text-blue-200 text-sm uppercase tracking-wide">Miles Analyzed</div>
+                    </div>
+                    <div>
+                        <div class="text-4xl font-bold mb-2">50+</div>
+                        <div class="text-blue-200 text-sm uppercase tracking-wide">Cities Partnered</div>
+                    </div>
+                    <div>
+                        <div class="text-4xl font-bold mb-2">24/7</div>
+                        <div class="text-blue-200 text-sm uppercase tracking-wide">Automated Monitoring</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Mission & Vision Grid -->
+        <section class="py-16 sm:py-24 px-4 bg-gray-50">
+            <div class="max-w-7xl mx-auto">
+                <div class="grid md:grid-cols-2 gap-12 items-center">
+                    <!-- Text Content -->
+                    <div class="space-y-8">
+                        <div>
+                            <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center text-blue-600 mb-4">
+                                <i class="fa-solid fa-bullseye text-xl"></i>
+                            </div>
+                            <h2 class="text-2xl font-bold text-slate-900 mb-3">Our Mission</h2>
+                            <p class="text-slate-600 leading-relaxed">
+                                To revolutionize infrastructure maintenance by providing affordable, accessible, and accurate AI tools that empower local governments to maintain safe road networks proactively rather than reactively.
+                            </p>
+                        </div>
+                        <div>
+                            <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center text-purple-600 mb-4">
+                                <i class="fa-solid fa-microchip text-xl"></i>
+                            </div>
+                            <h2 class="text-2xl font-bold text-slate-900 mb-3">The Technology</h2>
+                            <p class="text-slate-600 leading-relaxed">
+                                Our proprietary deep learning models are trained on millions of road images. We can distinguish between harmless discolorations and critical structural failures like potholes, alligator cracking, and rutting in real-time.
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Visual Placeholder (Represents Tech/Dashboard) -->
+                    <div class="bg-white p-2 rounded-2xl shadow-lg border border-gray-200 transform md:rotate-2 hover:rotate-0 transition duration-500">
+                        <div class="bg-slate-100 rounded-xl h-64 sm:h-80 flex items-center justify-center relative overflow-hidden">
+                            <!-- Abstract decoration representing scanning -->
+                            <div class="absolute inset-0 bg-gradient-to-br from-blue-50 to-slate-100"></div>
+                            <div class="text-center z-10 p-6">
+                                <i class="fa-solid fa-layer-group text-6xl text-blue-200 mb-4"></i>
+                                <h3 class="text-lg font-semibold text-slate-400">Intelligent Analysis Engine</h3>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Team / Contact CTA -->
+        <section class="py-16 px-4 bg-white border-t border-gray-100">
+            <div class="max-w-4xl mx-auto text-center bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl p-8 sm:p-12 text-white shadow-xl">
+                <h2 class="text-2xl sm:text-3xl font-bold mb-4">Ready to modernize your maintenance?</h2>
+                <p class="text-slate-300 mb-8 max-w-xl mx-auto">Join the network of smart cities using data to drive decisions. Request a demo today.</p>
+                <div class="flex flex-col sm:flex-row gap-4 justify-center">
+                    <a href="#" class="bg-blue-600 hover:bg-blue-500 text-white px-8 py-3 rounded-lg font-medium transition">
+                        Get Started
+                    </a>
+                    <a href="#" class="bg-transparent border border-slate-600 hover:bg-slate-700 text-white px-8 py-3 rounded-lg font-medium transition">
+                        Contact Sales
+                    </a>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-white border-t border-gray-200 py-12">
+        <div class="max-w-7xl mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-6">
+            <div class="flex items-center gap-3">
+                <div class="bg-slate-800 text-white p-1.5 rounded-lg flex items-center justify-center">
+                    <i class="fa-solid fa-map text-sm"></i>
+                </div>
+                <span class="font-bold text-lg text-slate-900">Road Watch</span>
+            </div>
+            <div class="flex gap-6 text-slate-500 text-sm">
+                <a href="#" class="hover:text-blue-600">Privacy Policy</a>
+                <a href="#" class="hover:text-blue-600">Terms of Service</a>
+                <span>&copy; 2025 Road Watch</span>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+        const mobileMenu = document.getElementById('mobile-menu');
+
+        mobileMenuBtn.addEventListener('click', () => {
+            mobileMenu.classList.toggle('hidden');
+        });
+    </script>
+</body>
+</html>

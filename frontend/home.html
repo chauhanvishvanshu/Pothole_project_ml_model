@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Road Watch - AI Road Damage Detection</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts: Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        primary: '#1d4ed8',     /* intense blue */
+                        secondary: '#1e3a8a',   /* darker blue for text */
+                        accent: '#eff6ff',      /* very light blue background */
+                        textMain: '#111827',
+                        textMuted: '#6b7280',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-white text-slate-800 antialiased">
+
+    <!-- Navigation Bar -->
+    <nav class="border-b border-gray-100 sticky top-0 bg-white/95 backdrop-blur-sm z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                
+                <!-- Logo -->
+                <div class="flex items-center gap-3">
+                    <div class="bg-slate-800 text-white p-1.5 rounded-lg flex items-center justify-center">
+                        <i class="fa-solid fa-map text-lg"></i>
+                    </div>
+                    <a href="home.html" class="font-bold text-xl tracking-tight text-slate-900">Road Watch</a>
+                </div>
+
+                <!-- Desktop Menu -->
+                <div class="hidden md:flex items-center gap-1">
+                    <a href="home.html" class="bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-blue-800 transition">
+                        <i class="fa-solid fa-house"></i> Home
+                    </a>
+                    <a href="dashboard.html" class="text-slate-600 hover:text-blue-600 px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition">
+                        <i class="fa-solid fa-chart-simple"></i> Dashboard
+                    </a>
+                    <a href="results.html" class="text-slate-600 hover:text-blue-600 px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition">
+                        <i class="fa-solid fa-map-location-dot"></i> Results
+                    </a>
+                    <a href="about.html" class="text-slate-600 hover:text-blue-600 px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition">
+                        <i class="fa-solid fa-circle-info"></i> About
+                    </a>
+                </div>
+
+                <!-- Right Side Actions -->
+                <div class="hidden md:flex items-center gap-4">
+                    <button class="text-slate-500 hover:text-blue-600 transition">
+                        <i class="fa-regular fa-comment text-lg"></i>
+                    </button>
+                    <!-- Login Button points to index.html -->
+                    <a href="index.html" class="bg-white border border-gray-200 text-slate-700 hover:bg-gray-50 px-5 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition shadow-sm">
+                        <i class="fa-solid fa-arrow-right-from-bracket"></i> Logout
+                    </a>
+                </div>
+
+                <!-- Mobile menu button -->
+                <div class="md:hidden flex items-center">
+                    <button id="mobile-menu-btn" class="text-slate-600 hover:text-blue-600 focus:outline-none">
+                        <i class="fa-solid fa-bars text-2xl"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mobile Menu Panel -->
+        <div id="mobile-menu" class="hidden md:hidden border-t border-gray-100 bg-white">
+            <div class="px-2 pt-2 pb-3 space-y-1 sm:px-3">
+                <a href="home.html" class="bg-blue-50 text-blue-700 block px-3 py-2 rounded-md text-base font-medium">Home</a>
+                <a href="dashboard.html" class="text-gray-600 hover:bg-gray-50 hover:text-gray-900 block px-3 py-2 rounded-md text-base font-medium">Dashboard</a>
+                <a href="results.html" class="text-gray-600 hover:bg-gray-50 hover:text-gray-900 block px-3 py-2 rounded-md text-base font-medium">Results</a>
+                <div class="border-t border-gray-100 mt-2 pt-2">
+                    <a href="index.html" class="text-gray-600 hover:bg-gray-50 hover:text-gray-900 block px-3 py-2 rounded-md text-base font-medium">Logout</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main>
+        <!-- Hero Section -->
+        <section class="py-16 sm:py-20 lg:py-24 px-4 bg-white">
+            <div class="max-w-7xl mx-auto text-center">
+                <h1 class="text-4xl sm:text-5xl lg:text-6xl font-bold text-slate-900 tracking-tight mb-4">
+                    <span class="text-blue-500">Road Damage</span>
+                    <span class="text-blue-300">Detection</span>
+                </h1>
+                <p class="mt-4 text-xl text-slate-500 max-w-2xl mx-auto mb-16">
+                    Run AI road inspection from uploaded videos, single photos, or a live dashcam feed and keep every export in one workflow
+                </p>
+
+                <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16">
+                    <a href="dashboard.html" class="bg-blue-700 text-white px-6 py-3 rounded-xl text-sm font-semibold flex items-center gap-2 hover:bg-blue-800 transition shadow-sm">
+                        <i class="fa-solid fa-chart-simple"></i> Open Dashboard
+                    </a>
+                    <a href="results.html" class="bg-white border border-gray-200 text-slate-700 hover:bg-gray-50 px-6 py-3 rounded-xl text-sm font-semibold flex items-center gap-2 transition shadow-sm">
+                        <i class="fa-solid fa-folder-open"></i> Browse Results
+                    </a>
+                </div>
+
+                <!-- Process Cards -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-8 text-left">
+                    <!-- Card 1 -->
+                    <div class="bg-white rounded-xl border border-gray-200 p-8 shadow-sm hover:shadow-md transition duration-300">
+                        <div class="bg-blue-50 w-12 h-12 rounded-lg flex items-center justify-center mb-6 text-blue-600">
+                            <i class="fa-regular fa-file-video text-xl"></i>
+                        </div>
+                        <h3 class="text-xl font-bold text-slate-900 mb-3">Upload Video</h3>
+                        <p class="text-slate-500 leading-relaxed">
+                            Drag and drop your road inspection videos in any format via the Dashboard.
+                        </p>
+                    </div>
+
+                    <!-- Card 2 -->
+                    <div class="bg-white rounded-xl border border-gray-200 p-8 shadow-sm hover:shadow-md transition duration-300">
+                        <div class="bg-blue-50 w-12 h-12 rounded-lg flex items-center justify-center mb-6 text-blue-600">
+                            <i class="fa-solid fa-camera text-xl"></i>
+                        </div>
+                        <h3 class="text-xl font-bold text-slate-900 mb-3">Photo & Live Capture</h3>
+                        <p class="text-slate-500 leading-relaxed">
+                            Scan single road photos instantly or sample a live browser camera for dashcam-style field checks.
+                        </p>
+                    </div>
+
+                    <!-- Card 3 -->
+                    <div class="bg-white rounded-xl border border-gray-200 p-8 shadow-sm hover:shadow-md transition duration-300">
+                        <div class="bg-blue-50 w-12 h-12 rounded-lg flex items-center justify-center mb-6 text-blue-600">
+                            <i class="fa-solid fa-chart-column text-xl"></i>
+                        </div>
+                        <h3 class="text-xl font-bold text-slate-900 mb-3">Results & Exports</h3>
+                        <p class="text-slate-500 leading-relaxed">
+                            Keep annotated media, CSV, PDF, KML, and bundled archives ready for review and planning.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Features Section -->
+        <section class="py-16 sm:py-20 px-4 bg-gray-50/50">
+            <div class="max-w-7xl mx-auto">
+                <div class="text-center mb-16">
+                    <h2 class="text-3xl sm:text-4xl font-bold text-slate-900 mb-4">Powerful Features</h2>
+                    <p class="text-lg text-slate-500 max-w-2xl mx-auto">
+                        Everything you need to detect, analyze, and report road damage efficiently
+                    </p>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                    <!-- Feature 1 -->
+                    <div class="bg-white rounded-xl border border-gray-100 p-8 hover:border-blue-200 transition duration-300">
+                        <div class="bg-blue-50 w-12 h-12 rounded-lg flex items-center justify-center mb-6 text-blue-600">
+                            <i class="fa-solid fa-brain text-xl"></i>
+                        </div>
+                        <h3 class="text-lg font-bold text-slate-900 mb-3">AI-Powered Detection</h3>
+                        <p class="text-slate-500 text-sm leading-relaxed">
+                            Advanced machine learning algorithms detect potholes, cracks, and road damage with high accuracy.
+                        </p>
+                    </div>
+
+                    <!-- Feature 2 -->
+                    <div class="bg-white rounded-xl border border-gray-100 p-8 hover:border-blue-200 transition duration-300">
+                        <div class="bg-blue-50 w-12 h-12 rounded-lg flex items-center justify-center mb-6 text-blue-600">
+                            <i class="fa-solid fa-bolt text-xl"></i>
+                        </div>
+                        <h3 class="text-lg font-bold text-slate-900 mb-3">Live Dashcam Mode</h3>
+                        <p class="text-slate-500 text-sm leading-relaxed">
+                            Use a browser camera for live roadside inspection with rolling detections and annotated feedback.
+                        </p>
+                    </div>
+
+                    <!-- Feature 3 -->
+                    <div class="bg-white rounded-xl border border-gray-100 p-8 hover:border-blue-200 transition duration-300">
+                        <div class="bg-blue-50 w-12 h-12 rounded-lg flex items-center justify-center mb-6 text-blue-600">
+                            <i class="fa-solid fa-chart-simple text-xl"></i>
+                        </div>
+                        <h3 class="text-lg font-bold text-slate-900 mb-3">Detailed Analytics</h3>
+                        <p class="text-slate-500 text-sm leading-relaxed">
+                            Comprehensive statistics and insights about detected road damage patterns and severity levels.
+                        </p>
+                    </div>
+
+                    <!-- Feature 4 -->
+                    <div class="bg-white rounded-xl border border-gray-100 p-8 hover:border-blue-200 transition duration-300">
+                        <div class="bg-blue-50 w-12 h-12 rounded-lg flex items-center justify-center mb-6 text-blue-600">
+                            <i class="fa-regular fa-map text-xl"></i>
+                        </div>
+                        <h3 class="text-lg font-bold text-slate-900 mb-3">GPS Mapping</h3>
+                        <p class="text-slate-500 text-sm leading-relaxed">
+                            Visualize detected damage on interactive maps with precise location coordinates.
+                        </p>
+                    </div>
+
+                    <!-- Feature 5 -->
+                    <div class="bg-white rounded-xl border border-gray-100 p-8 hover:border-blue-200 transition duration-300">
+                        <div class="bg-blue-50 w-12 h-12 rounded-lg flex items-center justify-center mb-6 text-blue-600">
+                            <i class="fa-regular fa-file-lines text-xl"></i>
+                        </div>
+                        <h3 class="text-lg font-bold text-slate-900 mb-3">Export Reports</h3>
+                        <p class="text-slate-500 text-sm leading-relaxed">
+                            Download annotated outputs plus CSV, PDF, KML, and ZIP archives from one reporting pipeline.
+                        </p>
+                    </div>
+
+                    <!-- Feature 6 -->
+                    <div class="bg-white rounded-xl border border-gray-100 p-8 hover:border-blue-200 transition duration-300">
+                        <div class="bg-blue-50 w-12 h-12 rounded-lg flex items-center justify-center mb-6 text-blue-600">
+                            <i class="fa-solid fa-shield-halved text-xl"></i>
+                        </div>
+                        <h3 class="text-lg font-bold text-slate-900 mb-3">Secure & Private</h3>
+                        <p class="text-slate-500 text-sm leading-relaxed">
+                            Your data is processed securely with industry-standard encryption and privacy protection.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-white border-t border-gray-200 py-12">
+        <div class="max-w-7xl mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-6">
+            <div class="flex items-center gap-3">
+                <div class="bg-slate-800 text-white p-1.5 rounded-lg flex items-center justify-center">
+                    <i class="fa-solid fa-map text-sm"></i>
+                </div>
+                <span class="font-bold text-lg text-slate-900">Road Watch</span>
+            </div>
+            <div class="text-slate-500 text-sm">
+                &copy; 2026 Road Watch. All rights reserved.
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Mobile Menu Toggle
+        const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+        const mobileMenu = document.getElementById('mobile-menu');
+
+        mobileMenuBtn.addEventListener('click', () => {
+            mobileMenu.classList.toggle('hidden');
+        });
+    </script>
+</body>
+</html>

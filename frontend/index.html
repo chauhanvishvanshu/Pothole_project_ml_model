@@ -1,407 +1,130 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Pothole Detection Dashboard</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Road Watch - Login</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts: Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 
-  <!-- Google Font (Inter) + Font Awesome for icons -->
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-
-  <style>
-    /* THEME COLORS (derived from the provided Tailwind-like file) */
-    :root {
-      --primary-600: #1d4ed8; /* primary */
-      --primary-700: #1e3a8a; /* secondary */
-      --bg: #f8fafc; /* light neutral */
-      --surface: #ffffff;
-      --muted: #f1f5f9;
-      --card-border: rgba(30,58,138,0.06);
-      --accent: #06b6d4;
-      --success: #16a34a;
-      --danger: #ef4444;
-      --text-900: #0f172a;
-      --text-600: #475569;
-    }
-
-    /* Base */
-    html,body { height: 100%; }
-    body {
-      margin: 0;
-      font-family: "Inter", "Segoe UI", Roboto, Arial, sans-serif;
-      background: linear-gradient(180deg, #f1f5f9 0%, #eef2ff 100%);
-      color: var(--text-900);
-      -webkit-font-smoothing:antialiased;
-      -moz-osx-font-smoothing:grayscale;
-      line-height: 1.4;
-    }
-
-    /* Header */
-    .header {
-      background: linear-gradient(90deg,var(--primary-600),var(--primary-700));
-      color: #fff;
-      padding: 18px 12px;
-      text-align: center;
-      box-shadow: 0 6px 18px rgba(30,58,138,0.08);
-    }
-    .header h1 { margin: 0; font-weight:700; letter-spacing: -0.5px; font-size: 1.35rem; }
-    .header p { margin: 4px 0 0; font-size: 0.9rem; opacity: 0.92; }
-
-    /* Layout */
-    .container {
-      max-width: 1280px;
-      margin: 26px auto;
-      padding: 18px;
-      display: flex;
-      gap: 20px;
-      flex-wrap: wrap;
-    }
-    .left { flex: 2; min-width: 320px; }
-    .right { flex: 1; min-width: 280px; align-self: flex-start; }
-
-    /* Cards */
-    .card {
-      background: var(--surface);
-      border-radius: 12px;
-      padding: 16px;
-      box-shadow: 0 8px 30px rgba(2,6,23,0.04);
-      border: 1px solid var(--card-border);
-    }
-
-    /* Upload row */
-    .upload { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
-    input[type="file"] { padding: 6px; border-radius: 8px; border: 1px solid #e6eefc; background: linear-gradient(180deg,#fff,#fbfdff); }
-
-    /* Buttons */
-    .btn {
-      background: linear-gradient(90deg,var(--primary-600),var(--primary-700));
-      color: #fff;
-      border: none;
-      padding: 10px 14px;
-      border-radius: 10px;
-      cursor: pointer;
-      font-weight: 600;
-      box-shadow: 0 6px 16px rgba(30,58,138,0.12);
-      transition: transform .12s ease, box-shadow .12s ease, opacity .12s ease;
-      text-decoration: none;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      justify-content: center;
-    }
-    .btn:active { transform: translateY(1px); }
-    .btn:disabled, .btn[disabled] { opacity: 0.6; cursor: not-allowed; box-shadow: none; transform: none; }
-
-    .btn.export { background: linear-gradient(90deg,#10b981,#059669); box-shadow: 0 6px 16px rgba(6,182,129,0.12); }
-
-    /* Video area */
-    .video {
-      width: 100%;
-      border-radius: 12px;
-      border: 3px solid rgba(29,78,216,0.12);
-      overflow: hidden;
-      background: linear-gradient(180deg,#f8fafc,#ffffff);
-    }
-    .video img { display: block; width: 100%; height: auto; }
-
-    /* Stats */
-    .stats-list { display:flex; flex-direction:column; gap:10px; margin-top:8px; }
-    .stat {
-      background: linear-gradient(180deg,#fbfdff,#f8fafc);
-      padding: 12px;
-      border-radius: 10px;
-      font-size: 0.95rem;
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:12px;
-      border: 1px solid rgba(2,6,23,0.03);
-    }
-    .stat strong { color: var(--text-600); font-weight:600; }
-
-    footer {
-      margin-top: 28px;
-      background: linear-gradient(90deg,var(--primary-600),var(--primary-700));
-      color: #fff;
-      padding: 12px;
-      text-align: center;
-      border-radius: 8px;
-    }
-    #eta { font-weight: 700; color: var(--primary-700); }
-
-    /* Small screens adjustments */
-    @media (max-width: 920px) {
-      .container { padding: 12px; }
-      .left, .right { min-width: 100%; flex: 1 1 100%; }
-      .upload { flex-direction: column; align-items:stretch; }
-    }
-
-    /* subtle helper */
-    .muted { color: var(--text-600); }
-    .small { font-size: 0.85rem; color: var(--text-600); }
-  </style>
-</head>
-
-<body>
-  <header class="header">
-    <h1>Pothole Detection</h1>
-    <p>Real-time YOLO detection • Multi-session Backend</p>
-  </header>
-
-  <main class="container">
-    <section class="left">
-      <div class="card">
-        <form id="uploadForm" class="upload" enctype="multipart/form-data">
-          <input type="text" name="start_coords" id="start_coords"
-            placeholder="Start GPS (lat,lon) — optional"
-            style="padding:8px;border-radius:8px;border:1px solid #e6eefc;width:180px;">
-
-          <input type="text" name="end_coords" id="end_coords"
-            placeholder="End GPS (lat,lon) — optional"
-            style="padding:8px;border-radius:8px;border:1px solid #e6eefc;width:180px;">
-
-          <input type="file" id="videoFile" name="video" accept="video/*" required />
-          <button class="btn" type="submit">Upload & Run</button>
-        </form>
-
-        <div class="video" aria-hidden="false">
-          <img id="videoFeed" src="" alt="Video feed" onerror="retryStream()" />
-        </div>
-      </div>
-    </section>
-
-    <aside class="right">
-      <div class="card">
-        <h2 style="color:var(--primary-700);margin:0 0 10px">Live Statistics</h2>
-
-        <div class="stats-list">
-          <div class="stat"><strong>Status:</strong> <span id="status">Idle</span></div>
-          <div class="stat"><strong>Detections:</strong> <span id="detection-count">0</span></div>
-          <div class="stat"><strong>Total Area (m²):</strong> <span id="live-area">0.00</span></div>
-          <div class="stat"><strong>Avg Confidence:</strong> <span id="avg-conf">0.00</span></div>
-          <div class="stat"><strong>Video FPS:</strong> <span id="video-fps">0.00</span></div>
-          <div class="stat"><strong>Processing FPS:</strong> <span id="proc-fps">0.00</span></div>
-          <div class="stat"><strong>ETA:</strong> <span id="eta">--:--</span></div>
-        </div>
-
-        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;">
-          <a id="manualExport" class="btn export" href="#"
-             style="pointer-events:none;opacity:0.6;" target="_blank">Export CSV</a>
-
-          <a id="downloadArchive" class="btn" href="#"
-             style="background:#64748b;pointer-events:none;opacity:0.6;" target="_blank">Download Archive</a>
-
-          <a id="exportPDF" class="btn" href="#"
-             style="background:linear-gradient(90deg,#0ea5e9,#6366f1);pointer-events:none;opacity:0.6;" target="_blank">Export PDF</a>
-
-          <a id="exportKML" class="btn" href="#"
-             style="background:linear-gradient(90deg,#7c3aed,#a78bfa);pointer-events:none;opacity:0.6;" target="_blank">Export KML</a>
-        </div>
-
-        <div id="mapPreviewBox" class="stat" style="display:none;margin-top:15px;">
-          <strong>GPS Map:</strong><br>
-          <iframe id="kmlMap"
-                  style="width:100%;height:220px;border:1px solid rgba(2,6,23,0.04);border-radius:8px;"
-                  src="">
-          </iframe>
-        </div>
-      </div>
-    </aside>
-  </main>
-
-  <footer>© 2025 Pothole Vision System</footer>
-
-  <script>
-    /* ==== NOTE: LOGIC REMAINS EXACTLY THE SAME AS BEFORE ====
-       Only styling and fonts were changed above.
-       All JS, IDs, endpoints and behaviour preserved.
-    */
-
-    // ---------------- BACKEND AUTO-SELECTION ----------------
-    function detectBackend() {
-      const host = window.location.hostname;
-
-      if (host === "localhost" || host === "127.0.0.1" || window.location.protocol === "file:")
-        return "http://127.0.0.1:7860";
-
-      if (host.endsWith(".netlify.app"))
-        return "https://YOUR-HF-SPACE.hf.space";
-
-      if (host.endsWith(".hf.space"))
-        return window.location.origin;
-
-      return "http://127.0.0.1:7860";
-    }
-
-    const backend = detectBackend();
-    console.log("Using backend:", backend);
-
-    let sessionId = null;
-
-    const statusEl = document.getElementById("status");
-    const videoFeed = document.getElementById("videoFeed");
-    const manualExport = document.getElementById("manualExport");
-    const downloadArchive = document.getElementById("downloadArchive");
-
-    // ---------------- UTILITIES ----------------
-    async function fetchJSON(url) {
-      try {
-        const res = await fetch(url, { cache: "no-store" });
-        if (!res.ok) return { error: true };
-        return res.json();
-      } catch {
-        return { error: true };
-      }
-    }
-
-    function safeFixed(v, d = 2) {
-      v = Number(v);
-      return isFinite(v) ? v.toFixed(d) : "0.00";
-    }
-
-    function formatETA(s) {
-      if (!s || s < 0) return "--:--";
-      const m = Math.floor(s / 60);
-      const r = Math.floor(s % 60);
-      return `${String(m).padStart(2,'0')}:${String(r).padStart(2,'0')}`;
-    }
-
-    function resetUI() {
-      document.getElementById("detection-count").textContent = "0";
-      document.getElementById("live-area").textContent = "0.00";
-      document.getElementById("avg-conf").textContent = "0.00";
-      document.getElementById("video-fps").textContent = "0.00";
-      document.getElementById("proc-fps").textContent = "0.00";
-      document.getElementById("eta").textContent = "--:--";
-      videoFeed.src = "";
-      // hide map preview when new upload starts
-      document.getElementById("mapPreviewBox").style.display = "none";
-      document.getElementById("kmlMap").src = "";
-    }
-
-    function retryStream() {
-      if (sessionId) {
-        videoFeed.src = `${backend}/video_feed/${sessionId}?t=${Date.now()}`;
-      }
-    }
-
-    function resolveUrl(maybeUrl) {
-      if (!maybeUrl) return null;
-      if (maybeUrl.startsWith("http://") || maybeUrl.startsWith("https://")) return maybeUrl;
-      if (maybeUrl.startsWith("/")) {
-        return backend.replace(/\/$/, "") + maybeUrl;
-      }
-      return backend.replace(/\/$/, "") + "/" + maybeUrl;
-    }
-
-    // ---------------- UPLOAD HANDLER ----------------
-    document.getElementById("uploadForm").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const videoFile = document.getElementById("videoFile").files[0];
-      if (!videoFile) return alert("Please select a video.");
-
-      resetUI();
-
-      const disableBtn = (el) => { el.style.pointerEvents = "none"; el.style.opacity = "0.6"; };
-      const enableBtn = (el) => { el.style.pointerEvents = "auto"; el.style.opacity = "1"; };
-
-      disableBtn(manualExport);
-      disableBtn(downloadArchive);
-      disableBtn(document.getElementById("exportPDF"));
-      disableBtn(document.getElementById("exportKML"));
-
-      statusEl.textContent = "Uploading...";
-
-      const fd = new FormData();
-      fd.append("video", videoFile);
-
-      const startC = document.getElementById("start_coords").value.trim();
-      const endC = document.getElementById("end_coords").value.trim();
-      if (startC) fd.append("start_coords", startC);
-      if (endC) fd.append("end_coords", endC);
-
-      try {
-        const res = await fetch(`${backend}/upload`, { method: "POST", body: fd });
-        const data = await res.json();
-        if (!res.ok) {
-          statusEl.textContent = "Idle";
-          return alert("Upload failed: " + JSON.stringify(data));
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        primary: '#1d4ed8',
+                        secondary: '#1e3a8a',
+                        textMain: '#111827',
+                    }
+                }
+            }
         }
+    </script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-gray-50 text-slate-800 antialiased min-h-screen flex flex-col">
 
-        sessionId = data.session_id;
-        statusEl.textContent = "Processing...";
-        retryStream();
-      } catch (err) {
-        console.error(err);
-        alert("Upload failed.");
-        statusEl.textContent = "Idle";
-      }
-    });
+    <!-- Navbar with Links -->
+    <nav class="bg-white border-b border-gray-100 py-4">
+        <div class="max-w-7xl mx-auto px-4 flex justify-between items-center">
+            <!-- Logo -->
+            <a href="home.html" class="flex items-center gap-3 hover:opacity-80 transition">
+                <div class="bg-slate-800 text-white p-1.5 rounded-lg flex items-center justify-center">
+                    <i class="fa-solid fa-map text-lg"></i>
+                </div>
+                <span class="font-bold text-xl tracking-tight text-slate-900">Road Watch</span>
+            </a>
 
-    // ---------------- POLLING ----------------
-    async function refreshStats() {
-      if (!sessionId) return;
+            <!-- Quick Links -->
+            <div class="flex items-center gap-4 text-sm font-medium">
+                <a href="home.html" class="text-slate-500 hover:text-blue-600 transition">Home</a>
+                <a href="about.html" class="text-slate-500 hover:text-blue-600 transition">About Us</a>
+            </div>
+        </div>
+    </nav>
 
-      const det = await fetchJSON(`${backend}/detection_count/${sessionId}`);
-      if (!det.error) {
-        document.getElementById("detection-count").textContent = det.detections ?? 0;
-        document.getElementById("live-area").textContent = safeFixed(det.total_area ?? 0);
-        document.getElementById("avg-conf").textContent = safeFixed(det.avg_confidence ?? 0);
-      }
+    <!-- Login Content -->
+    <main class="flex-1 flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-md rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
+            <div class="p-8">
+                <div class="text-center mb-8">
+                    <h1 class="text-2xl font-bold text-slate-900 mb-2">Welcome Back</h1>
+                    <p class="text-slate-500 text-sm">Sign in to access your road maintenance dashboard</p>
+                </div>
 
-      const prog = await fetchJSON(`${backend}/progress/${sessionId}`);
-      if (!prog.error) {
-        // If you have a progress widget elsewhere, you can update it externally
-        document.getElementById("video-fps").textContent = safeFixed(prog.video_fps ?? 0);
-        document.getElementById("proc-fps").textContent = safeFixed(prog.processing_fps ?? 0);
-        document.getElementById("eta").textContent = formatETA(prog.estimated_time_left_s);
-      }
+                <form id="loginForm" onsubmit="handleLogin(event)" class="space-y-5">
+                    <div>
+                        <label for="email" class="block text-sm font-medium text-slate-700 mb-1">Email Address</label>
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                                <i class="fa-regular fa-envelope"></i>
+                            </div>
+                            <input type="email" id="email" required
+                                class="w-full pl-10 pr-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-sm"
+                                placeholder="inspector@city.gov">
+                        </div>
+                    </div>
 
-      const proc = await fetchJSON(`${backend}/processing_status/${sessionId}`);
-      if (!proc.error) statusEl.textContent = proc.processing ? "Processing..." : "Idle";
+                    <div>
+                        <label for="password" class="block text-sm font-medium text-slate-700 mb-1">Password</label>
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                                <i class="fa-solid fa-lock"></i>
+                            </div>
+                            <input type="password" id="password" required
+                                class="w-full pl-10 pr-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-sm"
+                                placeholder="********">
+                        </div>
+                        <div class="flex justify-end mt-1">
+                            <a href="#" class="text-xs font-medium text-blue-600 hover:text-blue-500">Forgot password?</a>
+                        </div>
+                    </div>
 
-      const last = await fetchJSON(`${backend}/last_report/${sessionId}`);
+                    <button type="submit"
+                        class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg transition shadow-md flex items-center justify-center gap-2">
+                        <span>Sign In</span>
+                        <i class="fa-solid fa-arrow-right"></i>
+                    </button>
+                </form>
 
-      // enable CSV
-      if (!last.error && last.csv_url) {
-        manualExport.href = resolveUrl(last.csv_url);
-        manualExport.style.pointerEvents = "auto";
-        manualExport.style.opacity = "1";
-      }
+                <div class="mt-8 pt-6 border-t border-gray-100 text-center">
+                    <p class="text-sm text-slate-500">
+                        New Inspector?
+                        <a href="about.html" class="font-medium text-blue-600 hover:text-blue-500">Learn about our mission</a>
+                    </p>
+                </div>
+            </div>
 
-      // enable ZIP archive
-      if (!last.error && last.archive_url) {
-        downloadArchive.href = resolveUrl(last.archive_url);
-        downloadArchive.style.pointerEvents = "auto";
-        downloadArchive.style.opacity = "1";
-      }
+            <div class="bg-gray-50 p-4 border-t border-gray-100 text-xs text-center text-slate-400">
+                <p>Authorized personnel only. Secure connection.</p>
+            </div>
+        </div>
+    </main>
 
-      // enable PDF
-      if (!last.error && last.pdf_url) {
-        const pdfBtn = document.getElementById("exportPDF");
-        pdfBtn.href = resolveUrl(last.pdf_url);
-        pdfBtn.style.pointerEvents = "auto";
-        pdfBtn.style.opacity = "1";
-      }
+    <script>
+        function handleLogin(event) {
+            event.preventDefault();
+            const btn = event.target.querySelector('button');
 
-      // enable KML and preview
-      if (!last.error && last.kml_url) {
-        const kmlBtn = document.getElementById("exportKML");
-        const kmlResolved = resolveUrl(last.kml_url);
-        kmlBtn.href = kmlResolved;
-        kmlBtn.style.pointerEvents = "auto";
-        kmlBtn.style.opacity = "1";
+            // Simulate loading state
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Verifying...';
 
-        const mapBox = document.getElementById("mapPreviewBox");
-        const mapFrame = document.getElementById("kmlMap");
-        mapFrame.src = `https://www.google.com/maps?q=${encodeURIComponent(kmlResolved)}`;
-        mapBox.style.display = "block";
-      }
-    }
-
-    setInterval(refreshStats, 1000);
-    refreshStats();
-  </script>
+            setTimeout(() => {
+                // REDIRECT LOGIC: Redirects to the main landing page (home.html)
+                // From there, the user can navigate to dashboard.html
+                window.location.href = 'home.html';
+            }, 1000);
+        }
+    </script>
 </body>
 </html>

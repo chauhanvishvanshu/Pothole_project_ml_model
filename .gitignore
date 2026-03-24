@@ -1,0 +1,43 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+backend/.venv/
+
+# Environment files
+.env
+.env.*
+
+# Logs
+*.log
+
+# Build / packaging
+build/
+dist/
+*.egg-info/
+
+# Project runtime data
+uploads/
+reports/
+backend/uploads/
+backend/reports/
+
+# Temporary media / archives
+*.tmp
+*.temp
