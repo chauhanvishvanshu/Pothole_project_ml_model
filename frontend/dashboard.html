@@ -870,6 +870,7 @@
       <nav class="nav">
         <a href="home.html">Home</a>
         <a href="dashboard.html" class="active">Dashboard</a>
+        <a href="analytics.html">Analytics</a>
         <a href="results.html">Results</a>
         <a href="about.html">About</a>
       </nav>
@@ -927,6 +928,22 @@
                 <label for="endCoords">End GPS</label>
                 <input type="text" id="endCoords" placeholder="12.9768,77.6021" />
               </div>
+              <div class="field">
+                <label for="videoZone">Zone</label>
+                <input type="text" id="videoZone" placeholder="Central Zone" />
+              </div>
+              <div class="field">
+                <label for="videoWard">Ward</label>
+                <input type="text" id="videoWard" placeholder="Ward 18" />
+              </div>
+              <div class="field">
+                <label for="videoRouteName">Route</label>
+                <input type="text" id="videoRouteName" placeholder="MG Road Corridor" />
+              </div>
+              <div class="field">
+                <label for="videoRoadSegment">Road Segment</label>
+                <input type="text" id="videoRoadSegment" placeholder="Church Street to Brigade Road" />
+              </div>
               <div class="field-wide">
                 <label for="videoFile">Road video</label>
                 <input type="file" id="videoFile" accept="video/*" />
@@ -942,6 +959,22 @@
             <h2 class="section-title"><i class="fa-regular fa-image"></i> Photo Analysis</h2>
             <p class="section-copy">Upload a still road photo to get an annotated image, detection summary, snapshots, CSV, and an export archive.</p>
             <div class="field-row">
+              <div class="field">
+                <label for="photoZone">Zone</label>
+                <input type="text" id="photoZone" placeholder="Central Zone" />
+              </div>
+              <div class="field">
+                <label for="photoWard">Ward</label>
+                <input type="text" id="photoWard" placeholder="Ward 18" />
+              </div>
+              <div class="field">
+                <label for="photoRouteName">Route</label>
+                <input type="text" id="photoRouteName" placeholder="MG Road Corridor" />
+              </div>
+              <div class="field">
+                <label for="photoRoadSegment">Road Segment</label>
+                <input type="text" id="photoRoadSegment" placeholder="Church Street to Brigade Road" />
+              </div>
               <div class="field-wide">
                 <label for="photoFile">Road photo</label>
                 <input type="file" id="photoFile" accept="image/*" />
@@ -976,6 +1009,22 @@
               <div class="field-wide">
                 <label for="liveSourceName">Capture note</label>
                 <input type="text" id="liveSourceName" placeholder="Field car / browser camera" />
+              </div>
+              <div class="field">
+                <label for="liveZone">Zone</label>
+                <input type="text" id="liveZone" placeholder="Central Zone" />
+              </div>
+              <div class="field">
+                <label for="liveWard">Ward</label>
+                <input type="text" id="liveWard" placeholder="Ward 18" />
+              </div>
+              <div class="field">
+                <label for="liveRouteName">Route</label>
+                <input type="text" id="liveRouteName" placeholder="MG Road Corridor" />
+              </div>
+              <div class="field">
+                <label for="liveRoadSegment">Road Segment</label>
+                <input type="text" id="liveRoadSegment" placeholder="Church Street to Brigade Road" />
               </div>
             </div>
             <div class="action-row">
@@ -1235,6 +1284,18 @@ function detectBackend() {
       return { icon: "fa-file-video", label: "Video", tone: "video" };
     }
 
+    function collectAreaContext(prefix) {
+      const ids = {
+        zone: `${prefix}Zone`,
+        ward: `${prefix}Ward`,
+        route_name: `${prefix}RouteName`,
+        road_segment: `${prefix}RoadSegment`,
+      };
+      return Object.fromEntries(
+        Object.entries(ids).map(([key, id]) => [key, (document.getElementById(id)?.value || "").trim()])
+      );
+    }
+
     async function fetchJson(url, options) {
       try {
         const res = await fetch(url, options);
@@ -1451,6 +1512,7 @@ function detectBackend() {
           </div>
           <div class="session-name">${title}</div>
           <div class="session-meta">${Number(item.total_detections ?? 0)} detections | ${safeFixed(item.total_area)} m2 | avg ${confidence}</div>
+          <div class="session-meta">${escapeHtml(item.location_label || "Unassigned area")}</div>
           <div class="session-meta">Score ${Number(item.road_health_score ?? 100)} | ${escapeHtml(item.maintenance_priority || "Low")} priority | ${escapeHtml(item.top_severity || "None")}</div>
           <div class="session-actions">
             <button class="mini-btn primary" type="button" data-open-session="${escapeHtml(item.session_id)}"><i class="fa-solid fa-arrow-up-right-from-square"></i> Open</button>
@@ -1602,18 +1664,30 @@ function detectBackend() {
       document.getElementById("videoFile").value = "";
       document.getElementById("startCoords").value = "";
       document.getElementById("endCoords").value = "";
+      document.getElementById("videoZone").value = "";
+      document.getElementById("videoWard").value = "";
+      document.getElementById("videoRouteName").value = "";
+      document.getElementById("videoRoadSegment").value = "";
       resetSession();
       setStatus("Idle");
     });
 
     document.getElementById("resetPhotoBtn").addEventListener("click", () => {
       document.getElementById("photoFile").value = "";
+      document.getElementById("photoZone").value = "";
+      document.getElementById("photoWard").value = "";
+      document.getElementById("photoRouteName").value = "";
+      document.getElementById("photoRoadSegment").value = "";
       resetSession();
       setStatus("Idle");
     });
 
     document.getElementById("resetLiveBtn").addEventListener("click", async () => {
       await stopLiveSession(false);
+      document.getElementById("liveZone").value = "";
+      document.getElementById("liveWard").value = "";
+      document.getElementById("liveRouteName").value = "";
+      document.getElementById("liveRoadSegment").value = "";
       resetSession();
       setStatus("Idle");
     });
@@ -1634,6 +1708,10 @@ function detectBackend() {
       const endCoords = document.getElementById("endCoords").value.trim();
       if (startCoords) formData.append("start_coords", startCoords);
       if (endCoords) formData.append("end_coords", endCoords);
+      const areaContext = collectAreaContext("video");
+      Object.entries(areaContext).forEach(([key, value]) => {
+        if (value) formData.append(key, value);
+      });
 
       const res = await fetchJson(`${backend}/upload`, { method: "POST", body: formData });
       if (!res.ok) {
@@ -1660,6 +1738,10 @@ function detectBackend() {
       setStatus("Analyzing photo...");
       const formData = new FormData();
       formData.append("photo", file);
+      const areaContext = collectAreaContext("photo");
+      Object.entries(areaContext).forEach(([key, value]) => {
+        if (value) formData.append(key, value);
+      });
       const res = await fetchJson(`${backend}/upload_photo`, { method: "POST", body: formData });
       if (!res.ok) {
         setStatus("Photo analysis failed", "error");
@@ -1704,6 +1786,7 @@ function detectBackend() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           source_name: document.getElementById("liveSourceName").value.trim() || "browser_dashcam",
+          ...collectAreaContext("live"),
           ...liveConfig,
         }),
       });

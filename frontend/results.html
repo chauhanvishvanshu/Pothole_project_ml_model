@@ -827,6 +827,7 @@
       <nav class="nav">
         <a href="home.html">Home</a>
         <a href="dashboard.html">Dashboard</a>
+        <a href="analytics.html">Analytics</a>
         <a href="results.html" class="active">Results</a>
         <a href="about.html">About</a>
       </nav>
@@ -1220,6 +1221,7 @@
             ${renderWorkOrderBadge(workOrder)}
             <span class="subtle">${escapeHtml(renderWorkOrderSummary(workOrder))}</span>
           </div>
+          <div class="subtle">${escapeHtml(item.location_label || "Unassigned area")}</div>
           <div class="subtle">Session ID: ${escapeHtml(item.session_id || "--")}</div>
           <div class="subtle">Generated: ${escapeHtml(formatDate(item.generated_at || item.last_activity || item.created_at || item.manifest_mtime))}</div>
           <div class="subtle">${escapeHtml(item.insight_headline || "Road surface looks clear.")}</div>
