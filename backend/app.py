@@ -15,6 +15,7 @@ import math
 import base64
 import json
 import shutil
+import sqlite3
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 from functools import partial
@@ -71,9 +72,14 @@ SNAPSHOT_DIR = os.path.join(REPORT_DIR, "snapshots")
 PHOTO_DIR = os.path.join(REPORT_DIR, "photos")
 LIVE_DIR = os.path.join(REPORT_DIR, "live")
 MANIFEST_DIR = os.path.join(REPORT_DIR, "manifests")
+EVIDENCE_DIR = os.path.join(REPORT_DIR, "evidence")
+WORKFLOW_DB_PATH = resolve_config_path(os.environ.get("WORKFLOW_DB_PATH"), "road_watch_workflow.db")
 
 ALLOWED_EXT = {"mp4", "mov", "avi", "mkv", "webm"}
 ALLOWED_IMAGE_EXT = {"jpg", "jpeg", "png", "webp"}
+ALLOWED_EVIDENCE_KINDS = {"before", "after", "verification", "supporting"}
+WORK_ORDER_STATUSES = ("open", "assigned", "in_progress", "fixed", "verified", "reopened")
+WORK_ORDER_PRIORITIES = ("Low", "Moderate", "High", "Critical")
 FRAME_WIDTH = int(os.environ.get("FRAME_WIDTH", 1280))
 FRAME_HEIGHT = int(os.environ.get("FRAME_HEIGHT", 720))
 VIDEO_FRAME_WIDTH = int(os.environ.get("VIDEO_FRAME_WIDTH", FRAME_WIDTH))
@@ -129,7 +135,7 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 WARMED_INFERENCE_KEYS = set()
 
-for d in (UPLOAD_DIR, REPORT_DIR, ARCHIVE_DIR, SNAPSHOT_DIR, PHOTO_DIR, LIVE_DIR, MANIFEST_DIR):
+for d in (UPLOAD_DIR, REPORT_DIR, ARCHIVE_DIR, SNAPSHOT_DIR, PHOTO_DIR, LIVE_DIR, MANIFEST_DIR, EVIDENCE_DIR):
     os.makedirs(d, exist_ok=True)
 
 
@@ -669,6 +675,557 @@ def save_frame_image(frame, directory, stem, jpeg_bytes=None):
         return filepath, build_absolute_url(f"/reports/{os.path.relpath(filepath, REPORT_DIR).replace(os.sep, '/')}")
     except Exception:
         return None, None
+
+
+# ---------------------------
+# Workflow storage
+# ---------------------------
+workflow_lock = threading.Lock()
+
+
+def clean_text(value, max_length=None):
+    text = str(value or "").strip()
+    if max_length and len(text) > max_length:
+        text = text[:max_length].rstrip()
+    return text
+
+
+def normalize_work_order_status(value, default="open"):
+    text = clean_text(value).lower().replace("-", "_").replace(" ", "_")
+    return text if text in WORK_ORDER_STATUSES else default
+
+
+def normalize_work_order_priority(value, default="Moderate"):
+    text = clean_text(value)
+    if not text:
+        return default
+    lower = text.lower()
+    for candidate in WORK_ORDER_PRIORITIES:
+        if lower == candidate.lower():
+            return candidate
+    return default
+
+
+def normalize_deadline_value(value):
+    text = clean_text(value, max_length=32)
+    if not text:
+        return None
+    try:
+        return datetime.strptime(text[:10], "%Y-%m-%d").date().isoformat()
+    except Exception:
+        try:
+            return datetime.fromisoformat(text).date().isoformat()
+        except Exception:
+            return None
+
+
+def normalize_evidence_kind(value, default="supporting"):
+    text = clean_text(value).lower().replace("-", "_").replace(" ", "_")
+    return text if text in ALLOWED_EVIDENCE_KINDS else default
+
+
+def workflow_file_url(path):
+    resolved = resolve_managed_path(path)
+    if not resolved:
+        return None
+    report_root = os.path.abspath(REPORT_DIR)
+    if not safe_commonpath(report_root, resolved):
+        return None
+    rel_path = os.path.relpath(resolved, REPORT_DIR).replace(os.sep, "/")
+    return build_absolute_url(f"/reports/{rel_path}")
+
+
+def get_workflow_connection():
+    conn = sqlite3.connect(WORKFLOW_DB_PATH, timeout=30, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
+
+
+def init_workflow_db():
+    with workflow_lock:
+        conn = get_workflow_connection()
+        try:
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS work_orders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL UNIQUE,
+                    title TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    priority TEXT NOT NULL,
+                    assignee TEXT,
+                    deadline TEXT,
+                    remarks TEXT,
+                    created_by TEXT,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
+                    resolved_at REAL,
+                    verified_at REAL
+                );
+
+                CREATE TABLE IF NOT EXISTS work_order_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    work_order_id INTEGER NOT NULL,
+                    event_type TEXT NOT NULL,
+                    old_value TEXT,
+                    new_value TEXT,
+                    remarks TEXT,
+                    created_by TEXT,
+                    created_at REAL NOT NULL,
+                    FOREIGN KEY(work_order_id) REFERENCES work_orders(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS evidence_files (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    work_order_id INTEGER NOT NULL,
+                    session_id TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    file_path TEXT NOT NULL,
+                    original_name TEXT,
+                    caption TEXT,
+                    uploaded_by TEXT,
+                    created_at REAL NOT NULL,
+                    FOREIGN KEY(work_order_id) REFERENCES work_orders(id) ON DELETE CASCADE
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_work_orders_session_id ON work_orders(session_id);
+                CREATE INDEX IF NOT EXISTS idx_work_order_events_work_order_id ON work_order_events(work_order_id);
+                CREATE INDEX IF NOT EXISTS idx_evidence_files_work_order_id ON evidence_files(work_order_id);
+                CREATE INDEX IF NOT EXISTS idx_evidence_files_session_id ON evidence_files(session_id);
+                """
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def work_order_timestamps_for_status(status, current_resolved_at=None, current_verified_at=None, current_time=None):
+    now_value = current_time if current_time is not None else time.time()
+    if status == "verified":
+        return current_resolved_at or now_value, now_value
+    if status == "fixed":
+        return now_value, None
+    if status in ("open", "assigned", "in_progress", "reopened"):
+        return None, None
+    return current_resolved_at, current_verified_at
+
+
+def serialize_work_order_row(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "session_id": row["session_id"],
+        "title": row["title"],
+        "status": row["status"],
+        "priority": row["priority"],
+        "assignee": row["assignee"] or "",
+        "deadline": row["deadline"] or None,
+        "remarks": row["remarks"] or "",
+        "created_by": row["created_by"] or "",
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+        "resolved_at": row["resolved_at"],
+        "verified_at": row["verified_at"],
+        "evidence_count": int(row["evidence_count"] or 0),
+        "after_evidence_count": int(row["after_evidence_count"] or 0),
+        "verification_evidence_count": int(row["verification_evidence_count"] or 0),
+        "last_evidence_at": row["last_evidence_at"],
+        "has_after_proof": int(row["after_evidence_count"] or 0) > 0,
+        "has_verification_proof": int(row["verification_evidence_count"] or 0) > 0,
+    }
+
+
+def serialize_evidence_row(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "work_order_id": row["work_order_id"],
+        "session_id": row["session_id"],
+        "kind": row["kind"],
+        "file_path": row["file_path"],
+        "file_url": workflow_file_url(row["file_path"]),
+        "original_name": row["original_name"] or "",
+        "caption": row["caption"] or "",
+        "uploaded_by": row["uploaded_by"] or "",
+        "created_at": row["created_at"],
+    }
+
+
+def serialize_work_order_event_row(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "work_order_id": row["work_order_id"],
+        "event_type": row["event_type"],
+        "old_value": row["old_value"] or "",
+        "new_value": row["new_value"] or "",
+        "remarks": row["remarks"] or "",
+        "created_by": row["created_by"] or "",
+        "created_at": row["created_at"],
+    }
+
+
+def fetch_work_order_row(conn, where_clause, params):
+    query = f"""
+        SELECT
+            w.*,
+            (SELECT COUNT(*) FROM evidence_files e WHERE e.work_order_id = w.id) AS evidence_count,
+            (SELECT COUNT(*) FROM evidence_files e WHERE e.work_order_id = w.id AND e.kind = 'after') AS after_evidence_count,
+            (SELECT COUNT(*) FROM evidence_files e WHERE e.work_order_id = w.id AND e.kind = 'verification') AS verification_evidence_count,
+            (SELECT MAX(created_at) FROM evidence_files e WHERE e.work_order_id = w.id) AS last_evidence_at
+        FROM work_orders w
+        WHERE {where_clause}
+        LIMIT 1
+    """
+    return conn.execute(query, params).fetchone()
+
+
+def list_work_order_events(conn, work_order_id):
+    rows = conn.execute(
+        """
+        SELECT id, work_order_id, event_type, old_value, new_value, remarks, created_by, created_at
+        FROM work_order_events
+        WHERE work_order_id = ?
+        ORDER BY created_at DESC, id DESC
+        """,
+        (int(work_order_id),),
+    ).fetchall()
+    return [serialize_work_order_event_row(row) for row in rows]
+
+
+def list_work_order_evidence(conn, work_order_id):
+    rows = conn.execute(
+        """
+        SELECT id, work_order_id, session_id, kind, file_path, original_name, caption, uploaded_by, created_at
+        FROM evidence_files
+        WHERE work_order_id = ?
+        ORDER BY created_at DESC, id DESC
+        """,
+        (int(work_order_id),),
+    ).fetchall()
+    return [serialize_evidence_row(row) for row in rows]
+
+
+def get_work_order_by_id(work_order_id, include_events=False, include_evidence=False):
+    conn = get_workflow_connection()
+    try:
+        row = fetch_work_order_row(conn, "w.id = ?", (int(work_order_id),))
+        work_order = serialize_work_order_row(row)
+        if not work_order:
+            return None
+        if include_evidence:
+            work_order["evidence_files"] = list_work_order_evidence(conn, work_order["id"])
+        if include_events:
+            work_order["events"] = list_work_order_events(conn, work_order["id"])
+        return work_order
+    finally:
+        conn.close()
+
+
+def get_work_order_by_session(session_id, include_events=False, include_evidence=False):
+    if not session_id:
+        return None
+    conn = get_workflow_connection()
+    try:
+        row = fetch_work_order_row(conn, "w.session_id = ?", (str(session_id),))
+        work_order = serialize_work_order_row(row)
+        if not work_order:
+            return None
+        if include_evidence:
+            work_order["evidence_files"] = list_work_order_evidence(conn, work_order["id"])
+        if include_events:
+            work_order["events"] = list_work_order_events(conn, work_order["id"])
+        return work_order
+    finally:
+        conn.close()
+
+
+def list_work_orders(session_id=None, status=None, limit=100):
+    session_id = clean_text(session_id, max_length=128) or None
+    status = normalize_work_order_status(status, default="") if status else None
+    limit = max(1, min(200, int(limit or 100)))
+    conn = get_workflow_connection()
+    try:
+        conditions = []
+        params = []
+        if session_id:
+            conditions.append("w.session_id = ?")
+            params.append(session_id)
+        if status:
+            conditions.append("w.status = ?")
+            params.append(status)
+        where_clause = " AND ".join(conditions) if conditions else "1 = 1"
+        rows = conn.execute(
+            f"""
+            SELECT
+                w.*,
+                (SELECT COUNT(*) FROM evidence_files e WHERE e.work_order_id = w.id) AS evidence_count,
+                (SELECT COUNT(*) FROM evidence_files e WHERE e.work_order_id = w.id AND e.kind = 'after') AS after_evidence_count,
+                (SELECT COUNT(*) FROM evidence_files e WHERE e.work_order_id = w.id AND e.kind = 'verification') AS verification_evidence_count,
+                (SELECT MAX(created_at) FROM evidence_files e WHERE e.work_order_id = w.id) AS last_evidence_at
+            FROM work_orders w
+            WHERE {where_clause}
+            ORDER BY w.updated_at DESC, w.id DESC
+            LIMIT ?
+            """,
+            (*params, limit),
+        ).fetchall()
+        return [serialize_work_order_row(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def record_work_order_event(conn, work_order_id, event_type, old_value=None, new_value=None, remarks=None, created_by=None, created_at=None):
+    conn.execute(
+        """
+        INSERT INTO work_order_events (work_order_id, event_type, old_value, new_value, remarks, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            int(work_order_id),
+            clean_text(event_type, max_length=64) or "updated",
+            clean_text(old_value, max_length=500) or None,
+            clean_text(new_value, max_length=500) or None,
+            clean_text(remarks, max_length=2000) or None,
+            clean_text(created_by, max_length=120) or None,
+            created_at if created_at is not None else time.time(),
+        ),
+    )
+
+
+def create_work_order_for_session(session_id, payload):
+    session_id = clean_text(session_id, max_length=128)
+    title = clean_text(payload.get("title"), max_length=160) or f"Road repair for session {session_id}"
+    status = normalize_work_order_status(payload.get("status"), default="open")
+    priority = normalize_work_order_priority(payload.get("priority"), default="Moderate")
+    assignee = clean_text(payload.get("assignee"), max_length=120) or None
+    deadline = normalize_deadline_value(payload.get("deadline"))
+    remarks = clean_text(payload.get("remarks"), max_length=2000) or None
+    created_by = clean_text(payload.get("created_by") or payload.get("actor"), max_length=120) or None
+    created_at = time.time()
+    resolved_at, verified_at = work_order_timestamps_for_status(status, current_time=created_at)
+
+    with workflow_lock:
+        conn = get_workflow_connection()
+        try:
+            conn.execute(
+                """
+                INSERT INTO work_orders (
+                    session_id, title, status, priority, assignee, deadline, remarks, created_by,
+                    created_at, updated_at, resolved_at, verified_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    session_id,
+                    title,
+                    status,
+                    priority,
+                    assignee,
+                    deadline,
+                    remarks,
+                    created_by,
+                    created_at,
+                    created_at,
+                    resolved_at,
+                    verified_at,
+                ),
+            )
+            work_order_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            record_work_order_event(
+                conn,
+                work_order_id,
+                "created",
+                new_value=status,
+                remarks=remarks,
+                created_by=created_by,
+                created_at=created_at,
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    return get_work_order_by_id(work_order_id, include_events=True, include_evidence=True)
+
+
+def update_work_order_fields(work_order_id, payload, event_label="updated", actor=None):
+    with workflow_lock:
+        conn = get_workflow_connection()
+        try:
+            existing = fetch_work_order_row(conn, "w.id = ?", (int(work_order_id),))
+            if not existing:
+                return None
+
+            updates = {}
+            events = []
+            current_time = time.time()
+            actor_value = clean_text(actor or payload.get("created_by") or payload.get("actor"), max_length=120) or None
+
+            if "title" in payload:
+                new_title = clean_text(payload.get("title"), max_length=160) or existing["title"]
+                if new_title != existing["title"]:
+                    updates["title"] = new_title
+                    events.append(("title_changed", existing["title"], new_title, None))
+
+            if "assignee" in payload:
+                new_assignee = clean_text(payload.get("assignee"), max_length=120) or None
+                if (new_assignee or "") != (existing["assignee"] or ""):
+                    updates["assignee"] = new_assignee
+                    events.append(("assignee_changed", existing["assignee"], new_assignee, None))
+
+            if "deadline" in payload:
+                new_deadline = normalize_deadline_value(payload.get("deadline"))
+                if (new_deadline or "") != (existing["deadline"] or ""):
+                    updates["deadline"] = new_deadline
+                    events.append(("deadline_changed", existing["deadline"], new_deadline, None))
+
+            if "priority" in payload:
+                new_priority = normalize_work_order_priority(payload.get("priority"), default=existing["priority"] or "Moderate")
+                if new_priority != existing["priority"]:
+                    updates["priority"] = new_priority
+                    events.append(("priority_changed", existing["priority"], new_priority, None))
+
+            if "remarks" in payload:
+                new_remarks = clean_text(payload.get("remarks"), max_length=2000) or None
+                if (new_remarks or "") != (existing["remarks"] or ""):
+                    updates["remarks"] = new_remarks
+                    events.append(("remarks_updated", existing["remarks"], new_remarks, clean_text(payload.get("event_remarks"), max_length=2000) or None))
+
+            if "status" in payload:
+                new_status = normalize_work_order_status(payload.get("status"), default=existing["status"] or "open")
+                if new_status != existing["status"]:
+                    updates["status"] = new_status
+                    resolved_at, verified_at = work_order_timestamps_for_status(
+                        new_status,
+                        current_resolved_at=existing["resolved_at"],
+                        current_verified_at=existing["verified_at"],
+                        current_time=current_time,
+                    )
+                    updates["resolved_at"] = resolved_at
+                    updates["verified_at"] = verified_at
+                    events.append((
+                        "status_changed",
+                        existing["status"],
+                        new_status,
+                        clean_text(payload.get("event_remarks"), max_length=2000) or clean_text(payload.get("remarks"), max_length=2000) or None,
+                    ))
+
+            if not updates:
+                return get_work_order_by_id(work_order_id, include_events=True, include_evidence=True)
+
+            updates["updated_at"] = current_time
+            columns = ", ".join(f"{column} = ?" for column in updates.keys())
+            params = list(updates.values()) + [int(work_order_id)]
+            conn.execute(f"UPDATE work_orders SET {columns} WHERE id = ?", params)
+
+            for event_type, old_value, new_value, remarks in events:
+                record_work_order_event(
+                    conn,
+                    work_order_id,
+                    event_type if event_label == "updated" else event_label,
+                    old_value=old_value,
+                    new_value=new_value,
+                    remarks=remarks,
+                    created_by=actor_value,
+                    created_at=current_time,
+                )
+
+            conn.commit()
+        finally:
+            conn.close()
+    return get_work_order_by_id(work_order_id, include_events=True, include_evidence=True)
+
+
+def add_work_order_evidence(work_order_id, file_storage, payload):
+    if file_storage is None or not file_storage.filename:
+        raise ValueError("Evidence file is required")
+    if not allowed_image_file(file_storage.filename):
+        raise ValueError("Only image files are supported for evidence uploads")
+
+    existing = get_work_order_by_id(work_order_id)
+    if not existing:
+        return None
+
+    session_id = existing["session_id"]
+    evidence_kind = normalize_evidence_kind(payload.get("kind"), default="supporting")
+    caption = clean_text(payload.get("caption"), max_length=300) or None
+    uploaded_by = clean_text(payload.get("uploaded_by") or payload.get("actor"), max_length=120) or None
+    safe_name = secure_filename(file_storage.filename) or "evidence.jpg"
+    base, ext = os.path.splitext(safe_name)
+    timestamp = now_ts()
+    session_dir = os.path.join(EVIDENCE_DIR, secure_filename(session_id) or session_id)
+    os.makedirs(session_dir, exist_ok=True)
+    filename = f"{normalize_evidence_kind(evidence_kind)}_{secure_filename(base) or 'file'}_{timestamp}{ext.lower() or '.jpg'}"
+    filepath = os.path.join(session_dir, filename)
+    file_storage.save(filepath)
+    created_at = time.time()
+
+    with workflow_lock:
+        conn = get_workflow_connection()
+        try:
+            conn.execute(
+                """
+                INSERT INTO evidence_files (work_order_id, session_id, kind, file_path, original_name, caption, uploaded_by, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (int(work_order_id), session_id, evidence_kind, filepath, safe_name, caption, uploaded_by, created_at),
+            )
+            record_work_order_event(
+                conn,
+                int(work_order_id),
+                "evidence_added",
+                new_value=evidence_kind,
+                remarks=caption,
+                created_by=uploaded_by,
+                created_at=created_at,
+            )
+            conn.execute("UPDATE work_orders SET updated_at = ? WHERE id = ?", (created_at, int(work_order_id)))
+            conn.commit()
+        finally:
+            conn.close()
+
+    return get_work_order_by_id(work_order_id, include_events=True, include_evidence=True)
+
+
+def delete_workflow_records_for_session(session_id):
+    session_id = clean_text(session_id, max_length=128)
+    deleted_files = 0
+    deleted_work_orders = 0
+    with workflow_lock:
+        conn = get_workflow_connection()
+        try:
+            work_order = conn.execute("SELECT id FROM work_orders WHERE session_id = ?", (session_id,)).fetchone()
+            evidence_rows = conn.execute("SELECT file_path FROM evidence_files WHERE session_id = ?", (session_id,)).fetchall()
+            for row in evidence_rows:
+                deleted_files += delete_path_if_managed(row["file_path"])
+            if work_order:
+                conn.execute("DELETE FROM work_orders WHERE session_id = ?", (session_id,))
+                deleted_work_orders = 1
+            conn.commit()
+        finally:
+            conn.close()
+    deleted_files += delete_path_if_managed(os.path.join(EVIDENCE_DIR, secure_filename(session_id) or session_id))
+    return {"deleted_work_orders": deleted_work_orders, "deleted_files": deleted_files}
+
+
+def clear_all_workflow_records():
+    deleted_files = purge_directory_contents(EVIDENCE_DIR)
+    with workflow_lock:
+        conn = get_workflow_connection()
+        try:
+            conn.execute("DELETE FROM work_order_events")
+            conn.execute("DELETE FROM evidence_files")
+            conn.execute("DELETE FROM work_orders")
+            conn.commit()
+        finally:
+            conn.close()
+    os.makedirs(EVIDENCE_DIR, exist_ok=True)
+    return {"deleted_files": deleted_files}
+
+
+init_workflow_db()
 
 # ---------------------------
 # GPS Handlers
@@ -1845,10 +2402,21 @@ def mjpeg_stream_for_session(sid):
                 s["streaming"] = False
                 s["last_activity"] = time.time()
 
+
+def attach_work_order_summary(payload):
+    if not isinstance(payload, dict):
+        return payload
+    session_id = payload.get("session_id")
+    work_order = get_work_order_by_session(session_id) if session_id else None
+    payload["work_order"] = work_order
+    payload["has_work_order"] = bool(work_order)
+    payload["workflow_status"] = (work_order or {}).get("status")
+    return payload
+
 def session_report_payload(s):
     if not s:
         return {"error": "Invalid"}
-    return {
+    payload = {
         "session_id": s.get("session_id"),
         "source_type": s.get("source_type", "video"),
         "csv_path": s.get("csv_path"),
@@ -1879,6 +2447,7 @@ def session_report_payload(s):
         "highlights": s.get("highlights", []),
         "video_name": s.get("video_name"),
     }
+    return attach_work_order_summary(payload)
 
 def clamp_int(value, default, minimum, maximum):
     try:
@@ -1928,6 +2497,7 @@ def load_recent_manifests(limit=30):
                 item.pop("_storage", None)
                 item["manifest_file"] = os.path.basename(path)
                 item["manifest_mtime"] = os.path.getmtime(path)
+                attach_work_order_summary(item)
                 manifests.append(item)
             except Exception:
                 continue
@@ -1951,6 +2521,7 @@ def load_manifest_record(sid):
             with open(path, "r", encoding="utf-8") as f:
                 item = json.load(f)
             if item.get("session_id") == sid:
+                attach_work_order_summary(item)
                 item["_manifest_path"] = path
                 return item
         except Exception:
@@ -1995,6 +2566,8 @@ def delete_session_records(sid):
         return {"found": False, "session_id": sid, "deleted_files": 0}
 
     deleted_files = 0
+    workflow_deleted = delete_workflow_records_for_session(sid)
+    deleted_files += workflow_deleted.get("deleted_files", 0)
     for path in collect_session_artifact_paths(sid, entry=entry, manifest_payload=manifest_payload):
         deleted_files += delete_path_if_managed(path)
 
@@ -2008,6 +2581,7 @@ def delete_session_records(sid):
         "deleted_files": deleted_files,
         "had_manifest": bool(manifest_payload),
         "was_active": bool(entry),
+        "deleted_work_orders": workflow_deleted.get("deleted_work_orders", 0),
     }
 
 def delete_all_session_records():
@@ -2030,10 +2604,12 @@ def delete_all_session_records():
         cleanup_session(sid)
 
     deleted_files = 0
+    workflow_reset = clear_all_workflow_records()
+    deleted_files += workflow_reset.get("deleted_files", 0)
     deleted_files += purge_directory_contents(UPLOAD_DIR)
     deleted_files += purge_directory_contents(REPORT_DIR)
 
-    for d in (UPLOAD_DIR, REPORT_DIR, ARCHIVE_DIR, SNAPSHOT_DIR, PHOTO_DIR, LIVE_DIR, MANIFEST_DIR):
+    for d in (UPLOAD_DIR, REPORT_DIR, ARCHIVE_DIR, SNAPSHOT_DIR, PHOTO_DIR, LIVE_DIR, MANIFEST_DIR, EVIDENCE_DIR):
         os.makedirs(d, exist_ok=True)
 
     return {
@@ -2061,6 +2637,153 @@ def warmup_model(frame_width, frame_height, inference_size, use_tracking):
 # ---------------------------
 @app.route("/")
 def index(): return jsonify({"status": "ok"})
+
+
+def request_payload_dict():
+    if request.is_json:
+        data = request.get_json(silent=True) or {}
+        return data if isinstance(data, dict) else {}
+    try:
+        return request.form.to_dict()
+    except Exception:
+        return {}
+
+
+def session_reference_payload(session_id):
+    loaded = load_session_data(session_id)
+    if not loaded:
+        return None
+    payload = dict(loaded.get("payload") or {})
+    payload.pop("_storage", None)
+    payload.pop("_manifest_path", None)
+    return attach_work_order_summary(payload)
+
+
+def work_order_detail_payload(work_order_id):
+    work_order = get_work_order_by_id(work_order_id, include_events=True, include_evidence=True)
+    if not work_order:
+        return None
+    return {
+        "work_order": work_order,
+        "session": session_reference_payload(work_order.get("session_id")),
+    }
+
+
+@app.route("/sessions/<sid>/work_order", methods=["GET", "POST"])
+def session_work_order(sid):
+    session_payload = session_reference_payload(sid)
+    if not session_payload:
+        return jsonify({"error": "Invalid session"}), 404
+
+    if request.method == "GET":
+        work_order = get_work_order_by_session(sid, include_events=True, include_evidence=True)
+        return jsonify({
+            "session": session_payload,
+            "work_order": work_order,
+            "has_work_order": bool(work_order),
+        })
+
+    payload = request_payload_dict()
+    existing = get_work_order_by_session(sid)
+    if existing:
+        work_order = update_work_order_fields(existing["id"], payload, actor=payload.get("actor"))
+        status_code = 200
+        result_status = "updated"
+    else:
+        work_order = create_work_order_for_session(sid, payload)
+        status_code = 201
+        result_status = "created"
+
+    session_payload = session_reference_payload(sid)
+    return jsonify({
+        "status": result_status,
+        "session": session_payload,
+        "work_order": work_order,
+    }), status_code
+
+
+@app.route("/work_orders")
+def work_orders_list_route():
+    session_id = request.args.get("session_id")
+    status = request.args.get("status")
+    limit = clamp_int(request.args.get("limit"), 50, 1, 200)
+    items = list_work_orders(session_id=session_id, status=status, limit=limit)
+    return jsonify({"items": items, "count": len(items)})
+
+
+@app.route("/work_orders/<int:work_order_id>", methods=["GET", "PATCH"])
+def work_order_detail_route(work_order_id):
+    if request.method == "GET":
+        payload = work_order_detail_payload(work_order_id)
+        if not payload:
+            return jsonify({"error": "Invalid work order"}), 404
+        return jsonify(payload)
+
+    data = request_payload_dict()
+    updated = update_work_order_fields(work_order_id, data, actor=data.get("actor"))
+    if not updated:
+        return jsonify({"error": "Invalid work order"}), 404
+    return jsonify({
+        "status": "updated",
+        "work_order": updated,
+        "session": session_reference_payload(updated.get("session_id")),
+    })
+
+
+@app.route("/work_orders/<int:work_order_id>/evidence", methods=["POST"])
+def work_order_evidence_route(work_order_id):
+    try:
+        work_order = add_work_order_evidence(work_order_id, request.files.get("file"), request_payload_dict())
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    if not work_order:
+        return jsonify({"error": "Invalid work order"}), 404
+    return jsonify({
+        "status": "uploaded",
+        "work_order": work_order,
+        "session": session_reference_payload(work_order.get("session_id")),
+    }), 201
+
+
+def update_work_order_status_route(work_order_id, next_status):
+    payload = request_payload_dict()
+    patch_payload = {
+        "status": next_status,
+        "event_remarks": payload.get("remarks"),
+    }
+    if "remarks" in payload:
+        patch_payload["remarks"] = payload.get("remarks")
+    updated = update_work_order_fields(work_order_id, patch_payload, actor=payload.get("actor"))
+    if not updated:
+        return jsonify({"error": "Invalid work order"}), 404
+
+    warning = None
+    if next_status == "fixed" and not updated.get("has_after_proof"):
+        warning = "Work order marked fixed without after-repair evidence."
+    elif next_status == "verified" and not updated.get("has_verification_proof"):
+        warning = "Work order verified without verification evidence."
+
+    return jsonify({
+        "status": next_status,
+        "warning": warning,
+        "work_order": updated,
+        "session": session_reference_payload(updated.get("session_id")),
+    })
+
+
+@app.route("/work_orders/<int:work_order_id>/resolve", methods=["POST"])
+def resolve_work_order_route(work_order_id):
+    return update_work_order_status_route(work_order_id, "fixed")
+
+
+@app.route("/work_orders/<int:work_order_id>/verify", methods=["POST"])
+def verify_work_order_route(work_order_id):
+    return update_work_order_status_route(work_order_id, "verified")
+
+
+@app.route("/work_orders/<int:work_order_id>/reopen", methods=["POST"])
+def reopen_work_order_route(work_order_id):
+    return update_work_order_status_route(work_order_id, "reopened")
 
 @app.route("/upload", methods=["POST"])
 def upload():
@@ -2435,12 +3158,19 @@ def serve_report(filename):
     req = os.path.abspath(os.path.join(REPORT_DIR, filename))
     if not safe_commonpath(os.path.abspath(REPORT_DIR), req) or not os.path.exists(req): return "Not found", 404
     mime = "text/csv"
+    as_attachment = True
     if filename.endswith(".pdf"): mime = "application/pdf"
     if filename.endswith(".kml"): mime = "application/vnd.google-earth.kml+xml"
-    if filename.endswith(".jpg") or filename.endswith(".jpeg"): mime = "image/jpeg"
-    if filename.endswith(".png"): mime = "image/png"
-    if filename.endswith(".webp"): mime = "image/webp"
-    return send_file(req, mimetype=mime, as_attachment=True, download_name=os.path.basename(req))
+    if filename.endswith(".jpg") or filename.endswith(".jpeg"):
+        mime = "image/jpeg"
+        as_attachment = False
+    if filename.endswith(".png"):
+        mime = "image/png"
+        as_attachment = False
+    if filename.endswith(".webp"):
+        mime = "image/webp"
+        as_attachment = False
+    return send_file(req, mimetype=mime, as_attachment=as_attachment, download_name=os.path.basename(req))
 
 @app.route("/download_archive/<path:filename>")
 def download_archive(filename):

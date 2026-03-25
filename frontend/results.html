@@ -4,25 +4,39 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Road Watch Results</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <style>
     :root {
       --ink: #102033;
-      --muted: #5f6f82;
+      --muted: #5f7083;
       --line: rgba(16, 32, 51, 0.1);
-      --blue: #165dff;
-      --blue-deep: #0d2d6c;
-      --surface: rgba(255, 255, 255, 0.94);
-      --bg: linear-gradient(180deg, #eff5ff 0%, #f8fafc 100%);
+      --blue: #1268f3;
+      --blue-deep: #0b2d6e;
+      --surface: rgba(255, 255, 255, 0.9);
+      --bg: linear-gradient(180deg, #f5f8fc 0%, #eef4fb 54%, #f7fafc 100%);
     }
     * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
     body {
       margin: 0;
-      font-family: "Inter", sans-serif;
+      font-family: "Manrope", sans-serif;
       color: var(--ink);
       background: var(--bg);
+      position: relative;
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(255, 255, 255, 0.16) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.16) 1px, transparent 1px);
+      background-size: 74px 74px;
+      mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.4), transparent 80%);
+      opacity: 0.34;
     }
     .shell {
       max-width: 1280px;
@@ -35,6 +49,15 @@
       align-items: center;
       gap: 16px;
       margin-bottom: 18px;
+      padding: 12px 14px;
+      border: 1px solid rgba(255, 255, 255, 0.62);
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.58);
+      backdrop-filter: blur(18px);
+      box-shadow: 0 14px 36px rgba(15, 23, 42, 0.08);
+      position: sticky;
+      top: 14px;
+      z-index: 20;
     }
     .brand {
       display: inline-flex;
@@ -68,31 +91,55 @@
       border: 1px solid var(--line);
       background: rgba(255, 255, 255, 0.78);
       font-weight: 600;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+    }
+    .nav a:hover {
+      transform: translateY(-1px);
+      border-color: rgba(18, 104, 243, 0.16);
+      box-shadow: 0 10px 22px rgba(15, 23, 42, 0.06);
     }
     .nav a.active {
       color: #fff;
       background: linear-gradient(135deg, var(--blue), var(--blue-deep));
       border-color: transparent;
+      box-shadow: 0 12px 30px rgba(18, 104, 243, 0.18);
     }
     .hero {
-      background: linear-gradient(135deg, rgba(22, 93, 255, 0.96), rgba(13, 45, 108, 0.96));
+      background: linear-gradient(135deg, rgba(18, 104, 243, 0.96), rgba(11, 45, 110, 0.96));
       color: #fff;
       border-radius: 28px;
       padding: 28px;
-      box-shadow: 0 20px 48px rgba(22, 93, 255, 0.2);
+      box-shadow: 0 20px 48px rgba(18, 104, 243, 0.18);
       margin-bottom: 20px;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: "";
+      position: absolute;
+      right: -80px;
+      top: -80px;
+      width: 240px;
+      height: 240px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.08);
     }
     .hero h1 {
       margin: 0 0 10px;
+      font-family: "Space Grotesk", sans-serif;
       font-size: clamp(2rem, 4vw, 3.2rem);
       line-height: 0.96;
       letter-spacing: -0.05em;
+      position: relative;
+      z-index: 1;
     }
     .hero p {
       margin: 0;
       max-width: 760px;
       color: rgba(255, 255, 255, 0.88);
       line-height: 1.6;
+      position: relative;
+      z-index: 1;
     }
     .meta {
       display: flex;
@@ -137,7 +184,21 @@
       display: inline-flex;
       align-items: center;
       gap: 10px;
-      box-shadow: 0 14px 30px rgba(22, 93, 255, 0.16);
+      box-shadow: 0 16px 30px rgba(18, 104, 243, 0.16);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .button:hover {
+      transform: translateY(-1px);
+    }
+    .button.secondary {
+      background: linear-gradient(135deg, #0f766e, #115e59);
+      box-shadow: 0 14px 30px rgba(15, 118, 110, 0.18);
+    }
+    .button.ghost {
+      color: var(--ink);
+      background: #fff;
+      border: 1px solid var(--line);
+      box-shadow: none;
     }
     .button.danger {
       background: linear-gradient(135deg, #ef4444, #991b1b);
@@ -150,6 +211,13 @@
       border-radius: 24px;
       padding: 18px;
       box-shadow: 0 16px 40px rgba(16, 32, 51, 0.08);
+      transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+    }
+    .map-panel:hover,
+    .card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 22px 44px rgba(16, 32, 51, 0.1);
+      border-color: rgba(18, 104, 243, 0.14);
     }
     .map-panel {
       margin-bottom: 18px;
@@ -164,6 +232,7 @@
     }
     .map-head h2 {
       margin: 0 0 6px;
+      font-family: "Space Grotesk", sans-serif;
       font-size: 1.25rem;
       letter-spacing: -0.03em;
     }
@@ -259,12 +328,14 @@
       margin-bottom: 6px;
     }
     .score-box strong {
+      font-family: "Space Grotesk", sans-serif;
       font-size: 2rem;
       line-height: 0.95;
       letter-spacing: -0.05em;
     }
     .card h2 {
       margin: 10px 0 6px;
+      font-family: "Space Grotesk", sans-serif;
       font-size: 1.1rem;
       letter-spacing: -0.03em;
     }
@@ -284,6 +355,11 @@
       border-radius: 16px;
       background: #f7f9fc;
       border: 1px solid var(--line);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .stat:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 12px 24px rgba(16, 32, 51, 0.06);
     }
     .stat span {
       display: block;
@@ -424,6 +500,296 @@
       font-size: 0.9rem;
       font-weight: 600;
     }
+    .action-pack {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .workflow-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+    .workflow-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border: 1px solid var(--line);
+      background: #f8fafc;
+      color: var(--ink);
+    }
+    .workflow-badge.none,
+    .workflow-badge.open {
+      background: rgba(59, 130, 246, 0.1);
+      color: #1d4ed8;
+      border-color: rgba(59, 130, 246, 0.18);
+    }
+    .workflow-badge.assigned,
+    .workflow-badge.in_progress {
+      background: rgba(245, 158, 11, 0.12);
+      color: #b45309;
+      border-color: rgba(245, 158, 11, 0.18);
+    }
+    .workflow-badge.fixed {
+      background: rgba(16, 185, 129, 0.12);
+      color: #047857;
+      border-color: rgba(16, 185, 129, 0.18);
+    }
+    .workflow-badge.verified {
+      background: rgba(15, 118, 110, 0.12);
+      color: #115e59;
+      border-color: rgba(15, 118, 110, 0.18);
+    }
+    .workflow-badge.reopened {
+      background: rgba(239, 68, 68, 0.12);
+      color: #b91c1c;
+      border-color: rgba(239, 68, 68, 0.18);
+    }
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.56);
+      backdrop-filter: blur(10px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      z-index: 50;
+    }
+    .modal-backdrop.active {
+      display: flex;
+    }
+    .workflow-modal {
+      width: min(1120px, calc(100vw - 24px));
+      max-height: calc(100vh - 32px);
+      overflow: auto;
+      border-radius: 28px;
+      background: rgba(255, 255, 255, 0.97);
+      box-shadow: 0 24px 80px rgba(15, 23, 42, 0.22);
+      border: 1px solid rgba(255, 255, 255, 0.7);
+    }
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      padding: 22px 24px 12px;
+      border-bottom: 1px solid var(--line);
+      position: sticky;
+      top: 0;
+      background: rgba(255, 255, 255, 0.96);
+      backdrop-filter: blur(14px);
+      z-index: 2;
+    }
+    .modal-header h2 {
+      margin: 8px 0 6px;
+      font-family: "Space Grotesk", sans-serif;
+      letter-spacing: -0.04em;
+      font-size: clamp(1.4rem, 2vw, 2rem);
+    }
+    .modal-header p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .modal-close {
+      width: 44px;
+      height: 44px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      font-size: 1.1rem;
+      cursor: pointer;
+      display: inline-grid;
+      place-items: center;
+      flex: 0 0 auto;
+    }
+    .modal-status {
+      padding: 14px 24px 0;
+      color: var(--muted);
+      min-height: 24px;
+    }
+    .modal-status.success {
+      color: #0f766e;
+    }
+    .modal-status.error {
+      color: #b91c1c;
+    }
+    .modal-status.warn {
+      color: #b45309;
+    }
+    .modal-body {
+      padding: 16px 24px 24px;
+      display: grid;
+      gap: 16px;
+    }
+    .workflow-layout {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 16px;
+      align-items: start;
+    }
+    .workflow-stack {
+      display: grid;
+      gap: 16px;
+    }
+    .workflow-section {
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: rgba(247, 249, 252, 0.82);
+      padding: 18px;
+      display: grid;
+      gap: 14px;
+    }
+    .workflow-section h3 {
+      margin: 0;
+      font-family: "Space Grotesk", sans-serif;
+      letter-spacing: -0.03em;
+      font-size: 1.08rem;
+    }
+    .workflow-subtle {
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.55;
+    }
+    .workflow-summary-grid,
+    .field-grid,
+    .evidence-grid,
+    .workflow-chip-grid {
+      display: grid;
+      gap: 12px;
+    }
+    .workflow-summary-grid,
+    .field-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .workflow-chip-grid {
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    }
+    .field {
+      display: grid;
+      gap: 6px;
+    }
+    .field.full {
+      grid-column: 1 / -1;
+    }
+    .field label,
+    .field span {
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .workflow-modal input,
+    .workflow-modal select,
+    .workflow-modal textarea {
+      width: 100%;
+      border-radius: 14px;
+      border: 1px solid rgba(16, 32, 51, 0.12);
+      background: #fff;
+      color: var(--ink);
+      padding: 12px 14px;
+      font: inherit;
+    }
+    .workflow-modal textarea {
+      resize: vertical;
+      min-height: 110px;
+    }
+    .workflow-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+    .workflow-metric {
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: #fff;
+      padding: 14px;
+    }
+    .workflow-metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.76rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 6px;
+    }
+    .workflow-metric strong {
+      font-size: 1.05rem;
+    }
+    .evidence-grid {
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    }
+    .evidence-card {
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: #fff;
+      overflow: hidden;
+      display: grid;
+    }
+    .evidence-card a {
+      color: inherit;
+      text-decoration: none;
+    }
+    .evidence-card img {
+      width: 100%;
+      height: 148px;
+      object-fit: cover;
+      display: block;
+      background: #e2e8f0;
+    }
+    .evidence-copy {
+      padding: 12px;
+      display: grid;
+      gap: 6px;
+    }
+    .evidence-copy strong {
+      font-size: 0.92rem;
+    }
+    .timeline {
+      display: grid;
+      gap: 10px;
+    }
+    .timeline-item {
+      border-radius: 16px;
+      border: 1px solid var(--line);
+      background: #fff;
+      padding: 12px;
+      display: grid;
+      gap: 5px;
+    }
+    .timeline-item strong {
+      font-size: 0.9rem;
+    }
+    .workflow-empty {
+      border-radius: 18px;
+      border: 1px dashed rgba(95, 112, 131, 0.3);
+      background: rgba(255, 255, 255, 0.72);
+      color: var(--muted);
+      padding: 16px;
+      line-height: 1.6;
+      text-align: center;
+    }
+    .loading-state {
+      padding: 28px;
+      border-radius: 22px;
+      border: 1px dashed var(--line);
+      text-align: center;
+      color: var(--muted);
+    }
     .empty {
       padding: 26px;
       border-radius: 22px;
@@ -434,6 +800,20 @@
     }
     @media (max-width: 720px) {
       .stats { grid-template-columns: 1fr; }
+      .workflow-summary-grid,
+      .field-grid,
+      .workflow-layout {
+        grid-template-columns: 1fr;
+      }
+      .modal-backdrop {
+        padding: 10px;
+      }
+      .modal-header,
+      .modal-body,
+      .modal-status {
+        padding-left: 16px;
+        padding-right: 16px;
+      }
     }
   </style>
 </head>
@@ -493,6 +873,25 @@
     <section class="results" id="resultsGrid"></section>
   </div>
 
+  <div class="modal-backdrop" id="workflowModalBackdrop" aria-hidden="true">
+    <div class="workflow-modal" role="dialog" aria-modal="true" aria-labelledby="workflowModalTitle">
+      <div class="modal-header">
+        <div>
+          <span class="badge"><i class="fa-solid fa-screwdriver-wrench"></i> Maintenance Workflow</span>
+          <h2 id="workflowModalTitle">Session workflow</h2>
+          <p id="workflowModalSubtitle">Create or update a repair workflow, attach proof, and verify closure.</p>
+        </div>
+        <button class="modal-close" id="workflowModalClose" type="button" aria-label="Close workflow panel">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div class="modal-status" id="workflowModalStatus"></div>
+      <div class="modal-body" id="workflowModalBody">
+        <div class="loading-state">Select a session to manage its work order.</div>
+      </div>
+    </div>
+  </div>
+
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
   <script>
     function detectBackend() {
@@ -517,6 +916,12 @@
     const mapChips = document.getElementById("mapChips");
     const mapEmpty = document.getElementById("mapEmpty");
     const sessionMapEl = document.getElementById("sessionMap");
+    const workflowModalBackdrop = document.getElementById("workflowModalBackdrop");
+    const workflowModalClose = document.getElementById("workflowModalClose");
+    const workflowModalTitle = document.getElementById("workflowModalTitle");
+    const workflowModalSubtitle = document.getElementById("workflowModalSubtitle");
+    const workflowModalStatus = document.getElementById("workflowModalStatus");
+    const workflowModalBody = document.getElementById("workflowModalBody");
     backendLabel.textContent = `Backend: ${backend}`;
 
     const selectedSidFromUrl = new URLSearchParams(window.location.search).get("sid");
@@ -524,6 +929,9 @@
       selectedSessionId: selectedSidFromUrl || null,
       map: null,
       mapLayers: [],
+      items: [],
+      workflowSessionId: null,
+      workflowPayload: null,
     };
 
     function resolveUrl(maybeUrl) {
@@ -533,15 +941,34 @@
       return backend.replace(/\/$/, "") + "/" + maybeUrl;
     }
 
+    async function fetchJson(url, options = {}) {
+      const res = await fetch(url, options);
+      const data = await res.json().catch(() => ({}));
+      return { res, data };
+    }
+
     function safeFixed(value, digits = 2) {
       const num = Number(value);
       return Number.isFinite(num) ? num.toFixed(digits) : "0.00";
     }
 
-    function formatDate(epochSeconds) {
-      const millis = Number(epochSeconds) * 1000;
-      if (!Number.isFinite(millis) || millis <= 0) return "Unknown time";
+    function formatDate(value) {
+      if (value === null || value === undefined || value === "") return "Unknown time";
+      if (typeof value === "string" && !/^\d+(\.\d+)?$/.test(value)) {
+        const parsed = new Date(value);
+        if (!Number.isNaN(parsed.getTime())) return parsed.toLocaleString();
+      }
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric) || numeric <= 0) return "Unknown time";
+      const millis = numeric > 1e12 ? numeric : numeric * 1000;
       return new Date(millis).toLocaleString();
+    }
+
+    function formatDeadline(value) {
+      if (!value) return "No deadline";
+      const parsed = new Date(`${String(value).slice(0, 10)}T00:00:00`);
+      if (Number.isNaN(parsed.getTime())) return String(value);
+      return parsed.toLocaleDateString();
     }
 
     function typeLabel(sourceType) {
@@ -567,6 +994,28 @@
       return "low";
     }
 
+    function workflowTone(status) {
+      const value = String(status || "none").toLowerCase();
+      if (["open", "assigned", "in_progress", "fixed", "verified", "reopened"].includes(value)) return value;
+      return "none";
+    }
+
+    function humanizeStatus(status) {
+      return String(status || "No work order")
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+    }
+
+    function workflowIcon(status) {
+      const value = workflowTone(status);
+      if (value === "assigned") return "fa-user-check";
+      if (value === "in_progress") return "fa-person-digging";
+      if (value === "fixed") return "fa-circle-check";
+      if (value === "verified") return "fa-shield-check";
+      if (value === "reopened") return "fa-rotate-left";
+      return "fa-clipboard-list";
+    }
+
     function escapeHtml(value) {
       return String(value ?? "")
         .replace(/&/g, "&amp;")
@@ -578,7 +1027,7 @@
 
     function buildLink(label, url, icon) {
       if (!url) return "";
-      return `<a class="link-btn" href="${resolveUrl(url)}" target="_blank"><i class="fa-solid ${icon}"></i> ${label}</a>`;
+      return `<a class="link-btn" href="${resolveUrl(url)}" target="_blank" rel="noreferrer"><i class="fa-solid ${icon}"></i> ${label}</a>`;
     }
 
     function renderSeverityStrip(counts) {
@@ -590,6 +1039,23 @@
 
     function hasMapData(item) {
       return Boolean(item.has_map || Number(item.gps_detection_count || 0) > 0 || item.kml_url);
+    }
+
+    function renderWorkOrderBadge(workOrder) {
+      if (!workOrder) {
+        return `<span class="workflow-badge none"><i class="fa-solid fa-clipboard-list"></i> No Work Order</span>`;
+      }
+      const tone = workflowTone(workOrder.status);
+      return `<span class="workflow-badge ${tone}"><i class="fa-solid ${workflowIcon(workOrder.status)}"></i> ${escapeHtml(humanizeStatus(workOrder.status))}</span>`;
+    }
+
+    function renderWorkOrderSummary(workOrder) {
+      if (!workOrder) return "No repair workflow has been created for this session yet.";
+      const parts = [];
+      parts.push(workOrder.assignee ? `Owner: ${workOrder.assignee}` : "Owner: Unassigned");
+      parts.push(workOrder.deadline ? `Due ${formatDeadline(workOrder.deadline)}` : "No deadline");
+      parts.push(`${Number(workOrder.evidence_count || 0)} evidence files`);
+      return parts.join(" | ");
     }
 
     function ensureMap() {
@@ -689,12 +1155,17 @@
       setTimeout(() => map.invalidateSize(), 50);
     }
 
+    function highlightSelectedSessionCards() {
+      resultsGrid.querySelectorAll(".card").forEach((card) => {
+        card.classList.toggle("active", card.getAttribute("data-session-id") === state.selectedSessionId);
+      });
+    }
+
     async function openSessionMap(sessionId) {
       if (!sessionId) return;
       statusText.textContent = `Loading map for ${sessionId}...`;
       try {
-        const res = await fetch(`${backend}/session_map/${encodeURIComponent(sessionId)}`, { cache: "no-store" });
-        const data = await res.json().catch(() => ({}));
+        const { res, data } = await fetchJson(`${backend}/session_map/${encodeURIComponent(sessionId)}`, { cache: "no-store" });
         if (!res.ok) throw new Error(data.error || "Map load failed");
         state.selectedSessionId = sessionId;
         try {
@@ -704,9 +1175,7 @@
         } catch (error) {}
         renderMapPayload(data);
         statusText.textContent = `Map loaded for ${sessionId}.`;
-        resultsGrid.querySelectorAll(".card").forEach((card) => {
-          card.classList.toggle("active", card.getAttribute("data-session-id") === sessionId);
-        });
+        highlightSelectedSessionCards();
       } catch (error) {
         setMapEmpty("Map unavailable", error.message || "This session does not have GPS data.");
         statusText.textContent = `Map load failed: ${error.message}`;
@@ -718,6 +1187,7 @@
       const title = escapeHtml(item.video_name || item.session_id || "Unnamed session");
       const score = Number(item.road_health_score ?? 100);
       const priority = item.maintenance_priority || "Low";
+      const workOrder = item.work_order || null;
       const highlights = Array.isArray(item.highlights) ? item.highlights.slice(0, 2) : [];
       const hotspots = Array.isArray(item.hotspots) ? item.hotspots.slice(0, 2) : [];
       const canMap = hasMapData(item);
@@ -746,6 +1216,10 @@
             <span class="priority-pill ${priorityTone(priority)}">${escapeHtml(priority)}</span>
             <span class="band">${escapeHtml(item.health_band || "Excellent")}</span>
           </div>
+          <div class="workflow-row">
+            ${renderWorkOrderBadge(workOrder)}
+            <span class="subtle">${escapeHtml(renderWorkOrderSummary(workOrder))}</span>
+          </div>
           <div class="subtle">Session ID: ${escapeHtml(item.session_id || "--")}</div>
           <div class="subtle">Generated: ${escapeHtml(formatDate(item.generated_at || item.last_activity || item.created_at || item.manifest_mtime))}</div>
           <div class="subtle">${escapeHtml(item.insight_headline || "Road surface looks clear.")}</div>
@@ -771,10 +1245,276 @@
           </div>
           <div class="card-actions">
             <div class="links">${links || `<span class="subtle">No exported assets recorded.</span>`}</div>
-            <button class="delete-btn" type="button" data-delete-session="${escapeHtml(item.session_id || "")}"><i class="fa-solid fa-trash"></i> Delete</button>
+            <div class="action-pack">
+              <button class="link-btn" type="button" data-open-workflow="${escapeHtml(item.session_id || "")}"><i class="fa-solid fa-screwdriver-wrench"></i> Workflow</button>
+              <button class="delete-btn" type="button" data-delete-session="${escapeHtml(item.session_id || "")}"><i class="fa-solid fa-trash"></i> Delete</button>
+            </div>
           </div>
         </article>
       `;
+    }
+
+    function renderResultsGrid() {
+      resultCount.textContent = `${state.items.length} sessions`;
+      if (!state.items.length) {
+        resultsGrid.innerHTML = `<div class="empty"><i class="fa-regular fa-folder-open fa-2x"></i><p>No completed sessions recorded yet. Run a video, photo, or live scan from the dashboard first.</p></div>`;
+        return;
+      }
+      resultsGrid.innerHTML = state.items.map(renderCard).join("");
+      highlightSelectedSessionCards();
+    }
+
+    function workflowStatusOptions(selected) {
+      const options = ["open", "assigned", "in_progress", "fixed", "verified", "reopened"];
+      return options.map((value) => `<option value="${value}"${value === selected ? " selected" : ""}>${escapeHtml(humanizeStatus(value))}</option>`).join("");
+    }
+
+    function priorityOptions(selected) {
+      const options = ["Low", "Moderate", "High", "Critical"];
+      return options.map((value) => `<option value="${value}"${value === selected ? " selected" : ""}>${escapeHtml(value)}</option>`).join("");
+    }
+
+    function evidenceKindOptions(selected) {
+      const options = ["before", "after", "verification", "supporting"];
+      return options.map((value) => `<option value="${value}"${value === selected ? " selected" : ""}>${escapeHtml(humanizeStatus(value))}</option>`).join("");
+    }
+
+    function formatEventLabel(eventType) {
+      const labels = {
+        created: "Work order created",
+        status_changed: "Status updated",
+        assignee_changed: "Assignee updated",
+        deadline_changed: "Deadline updated",
+        priority_changed: "Priority updated",
+        title_changed: "Title updated",
+        remarks_updated: "Remarks updated",
+        evidence_added: "Evidence uploaded",
+      };
+      return labels[eventType] || humanizeStatus(eventType);
+    }
+
+    function setWorkflowModalStatus(message = "", tone = "muted") {
+      workflowModalStatus.textContent = message || "";
+      workflowModalStatus.className = `modal-status${tone && tone !== "muted" ? ` ${tone}` : ""}`;
+    }
+
+    function renderEvidenceCards(evidence) {
+      if (!evidence.length) {
+        return `<div class="workflow-empty">No evidence uploaded yet. Add before, after, verification, or supporting proof here.</div>`;
+      }
+      return `<div class="evidence-grid">${evidence.map((file) => `
+        <article class="evidence-card">
+          <a href="${resolveUrl(file.file_url)}" target="_blank" rel="noreferrer">
+            <img src="${resolveUrl(file.file_url)}" alt="${escapeHtml(file.caption || file.kind || "Evidence")}" loading="lazy">
+          </a>
+          <div class="evidence-copy">
+            <strong>${escapeHtml(humanizeStatus(file.kind))}</strong>
+            <div class="workflow-subtle">${escapeHtml(file.caption || file.original_name || "Evidence file")}</div>
+            <div class="workflow-subtle">${escapeHtml(file.uploaded_by || "Unknown uploader")} • ${escapeHtml(formatDate(file.created_at))}</div>
+          </div>
+        </article>
+      `).join("")}</div>`;
+    }
+
+    function renderTimeline(events) {
+      if (!events.length) {
+        return `<div class="workflow-empty">No workflow history yet. Once a work order is created, status changes and uploads will appear here.</div>`;
+      }
+      return `<div class="timeline">${events.map((eventItem) => `
+        <article class="timeline-item">
+          <strong>${escapeHtml(formatEventLabel(eventItem.event_type))}</strong>
+          <div class="workflow-subtle">${escapeHtml(formatDate(eventItem.created_at))}${eventItem.created_by ? ` • ${escapeHtml(eventItem.created_by)}` : ""}</div>
+          <div class="workflow-subtle">
+            ${eventItem.old_value || eventItem.new_value ? `${escapeHtml(eventItem.old_value || "—")} → ${escapeHtml(eventItem.new_value || "—")}` : "Event recorded."}
+          </div>
+          ${eventItem.remarks ? `<div class="workflow-subtle">${escapeHtml(eventItem.remarks)}</div>` : ""}
+        </article>
+      `).join("")}</div>`;
+    }
+
+    function renderWorkflowModalContent() {
+      const payload = state.workflowPayload || {};
+      const session = payload.session || {};
+      const workOrder = payload.work_order || null;
+      const evidence = Array.isArray(workOrder && workOrder.evidence_files) ? workOrder.evidence_files : [];
+      const events = Array.isArray(workOrder && workOrder.events) ? workOrder.events : [];
+      const sessionLinks = [
+        buildLink("Annotated", session.annotated_url, "fa-image"),
+        buildLink("CSV", session.csv_url, "fa-file-lines"),
+        buildLink("Archive", session.archive_url, "fa-box-archive"),
+        buildLink("PDF", session.pdf_url, "fa-file-pdf"),
+        buildLink("KML", session.kml_url, "fa-map-location-dot"),
+      ].filter(Boolean).join("");
+
+      workflowModalTitle.textContent = session.video_name || session.session_id || "Session workflow";
+      workflowModalSubtitle.textContent = session.session_id
+        ? `Session ${session.session_id} • ${session.source_type || "scan"} workflow`
+        : "Create or update a repair workflow, attach proof, and verify closure.";
+
+      workflowModalBody.innerHTML = `
+        <div class="workflow-layout">
+          <div class="workflow-stack">
+            <section class="workflow-section">
+              <div class="workflow-row">
+                ${renderWorkOrderBadge(workOrder)}
+                <span class="workflow-subtle">${escapeHtml(renderWorkOrderSummary(workOrder))}</span>
+              </div>
+              <div class="workflow-chip-grid">
+                <article class="workflow-metric"><span>Health Score</span><strong>${Number(session.road_health_score ?? 100)}</strong></article>
+                <article class="workflow-metric"><span>Detections</span><strong>${Number(session.total_detections || 0)}</strong></article>
+                <article class="workflow-metric"><span>Priority Signal</span><strong>${escapeHtml(session.maintenance_priority || "Low")}</strong></article>
+                <article class="workflow-metric"><span>Generated</span><strong>${escapeHtml(formatDate(session.generated_at || session.last_activity || session.created_at || session.manifest_mtime))}</strong></article>
+              </div>
+              ${sessionLinks ? `<div class="workflow-actions">${sessionLinks}</div>` : `<div class="workflow-subtle">No session artifacts are currently attached to this scan.</div>`}
+            </section>
+
+            <section class="workflow-section">
+              <h3>${workOrder ? "Update work order" : "Create work order"}</h3>
+              <div class="workflow-subtle">Turn this AI inspection session into a trackable maintenance item with ownership, due date, and closure remarks.</div>
+              <form id="workflowForm" data-session-id="${escapeHtml(session.session_id || "")}" data-work-order-id="${workOrder ? escapeHtml(workOrder.id) : ""}">
+                <div class="field-grid">
+                  <div class="field full">
+                    <span>Title</span>
+                    <input type="text" name="title" value="${escapeHtml(workOrder ? workOrder.title : `Road repair for session ${session.session_id || ""}`)}" required>
+                  </div>
+                  <div class="field">
+                    <span>Status</span>
+                    <select name="status">${workflowStatusOptions(workOrder ? workOrder.status : "open")}</select>
+                  </div>
+                  <div class="field">
+                    <span>Priority</span>
+                    <select name="priority">${priorityOptions(workOrder ? workOrder.priority : (session.maintenance_priority || "Moderate"))}</select>
+                  </div>
+                  <div class="field">
+                    <span>Assignee</span>
+                    <input type="text" name="assignee" value="${escapeHtml(workOrder ? workOrder.assignee : "")}" placeholder="Engineer or contractor">
+                  </div>
+                  <div class="field">
+                    <span>Deadline</span>
+                    <input type="date" name="deadline" value="${escapeHtml(workOrder && workOrder.deadline ? workOrder.deadline : "")}">
+                  </div>
+                  <div class="field">
+                    <span>Updated By</span>
+                    <input type="text" name="actor" placeholder="Optional operator name">
+                  </div>
+                  <div class="field full">
+                    <span>Remarks</span>
+                    <textarea name="remarks" placeholder="Capture field notes, contractor instructions, or verification remarks.">${escapeHtml(workOrder ? workOrder.remarks : "")}</textarea>
+                  </div>
+                </div>
+                <div class="workflow-actions">
+                  <button class="button" type="submit"><i class="fa-solid fa-floppy-disk"></i> ${workOrder ? "Save Work Order" : "Create Work Order"}</button>
+                  ${workOrder ? `<button class="button secondary" type="button" data-workflow-action="resolve" data-work-order-id="${workOrder.id}"><i class="fa-solid fa-circle-check"></i> Mark Fixed</button>` : ""}
+                  ${workOrder ? `<button class="button ghost" type="button" data-workflow-action="verify" data-work-order-id="${workOrder.id}"><i class="fa-solid fa-shield-halved"></i> Verify Closure</button>` : ""}
+                  ${workOrder ? `<button class="button danger" type="button" data-workflow-action="reopen" data-work-order-id="${workOrder.id}"><i class="fa-solid fa-rotate-left"></i> Reopen</button>` : ""}
+                  <button class="button ghost" type="button" data-refresh-workflow><i class="fa-solid fa-rotate"></i> Refresh</button>
+                </div>
+              </form>
+            </section>
+          </div>
+
+          <div class="workflow-stack">
+            <section class="workflow-section">
+              <h3>Evidence and proof</h3>
+              <div class="workflow-subtle">Upload before and after proof, plus any supporting or verification evidence tied to this work order.</div>
+              ${workOrder ? `
+                <form id="evidenceForm" data-work-order-id="${workOrder.id}">
+                  <div class="field-grid">
+                    <div class="field">
+                      <span>Evidence Type</span>
+                      <select name="kind">${evidenceKindOptions("after")}</select>
+                    </div>
+                    <div class="field">
+                      <span>Uploaded By</span>
+                      <input type="text" name="uploaded_by" placeholder="Optional operator or engineer">
+                    </div>
+                    <div class="field full">
+                      <span>Caption</span>
+                      <input type="text" name="caption" placeholder="Short note about this evidence">
+                    </div>
+                    <div class="field full">
+                      <span>Image File</span>
+                      <input type="file" name="file" accept="image/*" required>
+                    </div>
+                  </div>
+                  <div class="workflow-actions">
+                    <button class="button secondary" type="submit"><i class="fa-solid fa-upload"></i> Upload Evidence</button>
+                  </div>
+                </form>
+              ` : `<div class="workflow-empty">Create the work order first, then you can upload before/after evidence and verification proof.</div>`}
+              ${renderEvidenceCards(evidence)}
+            </section>
+
+            <section class="workflow-section">
+              <h3>Workflow history</h3>
+              <div class="workflow-subtle">Status changes, field updates, and evidence uploads are logged here so the maintenance trail stays auditable.</div>
+              ${renderTimeline(events)}
+            </section>
+          </div>
+        </div>
+      `;
+    }
+
+    function openWorkflowModalShell() {
+      workflowModalBackdrop.classList.add("active");
+      workflowModalBackdrop.setAttribute("aria-hidden", "false");
+      document.body.style.overflow = "hidden";
+    }
+
+    function closeWorkflowModal() {
+      workflowModalBackdrop.classList.remove("active");
+      workflowModalBackdrop.setAttribute("aria-hidden", "true");
+      document.body.style.overflow = "";
+      state.workflowSessionId = null;
+      state.workflowPayload = null;
+      setWorkflowModalStatus("");
+      workflowModalTitle.textContent = "Session workflow";
+      workflowModalSubtitle.textContent = "Create or update a repair workflow, attach proof, and verify closure.";
+      workflowModalBody.innerHTML = `<div class="loading-state">Select a session to manage its work order.</div>`;
+    }
+
+    function syncSessionItemFromPayload(payload) {
+      const session = payload && payload.session ? payload.session : null;
+      if (!session || !session.session_id) return;
+      const nextItem = { ...session, work_order: payload.work_order || session.work_order || null };
+      const index = state.items.findIndex((item) => item.session_id === session.session_id);
+      if (index >= 0) state.items[index] = { ...state.items[index], ...nextItem };
+      else state.items.unshift(nextItem);
+      renderResultsGrid();
+    }
+
+    async function loadWorkflowDetails(sessionId, message = "") {
+      if (!sessionId) return;
+      state.workflowSessionId = sessionId;
+      workflowModalBody.innerHTML = `<div class="loading-state">Loading workflow for ${escapeHtml(sessionId)}...</div>`;
+      setWorkflowModalStatus(message);
+      try {
+        const { res, data } = await fetchJson(`${backend}/sessions/${encodeURIComponent(sessionId)}/work_order`, { cache: "no-store" });
+        if (!res.ok) throw new Error(data.error || "Workflow load failed");
+        state.workflowPayload = data;
+        renderWorkflowModalContent();
+        syncSessionItemFromPayload(data);
+        setWorkflowModalStatus(message);
+      } catch (error) {
+        workflowModalBody.innerHTML = `<div class="workflow-empty">Could not load the workflow for this session.</div>`;
+        setWorkflowModalStatus(error.message || "Workflow load failed", "error");
+      }
+    }
+
+    async function openWorkflowModal(sessionId) {
+      openWorkflowModalShell();
+      await loadWorkflowDetails(sessionId, `Loading workflow for ${sessionId}...`);
+    }
+
+    async function applyWorkflowResponse(data, successMessage) {
+      state.workflowPayload = {
+        session: data.session || (state.workflowPayload || {}).session || null,
+        work_order: data.work_order || null,
+      };
+      renderWorkflowModalContent();
+      syncSessionItemFromPayload(state.workflowPayload);
+      if (data.warning) setWorkflowModalStatus(data.warning, "warn");
+      else setWorkflowModalStatus(successMessage, "success");
     }
 
     async function deleteSession(sessionId) {
@@ -782,11 +1522,19 @@
       if (!window.confirm(`Delete session ${sessionId} and all saved files for it?`)) return;
       statusText.textContent = `Deleting ${sessionId}...`;
       try {
-        const res = await fetch(`${backend}/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
-        const data = await res.json().catch(() => ({}));
+        const { res, data } = await fetchJson(`${backend}/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
         if (!res.ok) throw new Error(data.error || "Delete failed");
+        state.items = state.items.filter((item) => item.session_id !== sessionId);
+        renderResultsGrid();
         statusText.textContent = `Deleted session ${sessionId}.`;
-        await loadRecentReports();
+        if (state.selectedSessionId === sessionId) {
+          state.selectedSessionId = null;
+          const nextMappable = state.items.find((item) => hasMapData(item));
+          if (nextMappable) await openSessionMap(nextMappable.session_id);
+          else setMapEmpty("Interactive session map", "Select a session with GPS detections to inspect route points and hotspots.");
+        }
+        if (state.workflowSessionId === sessionId) closeWorkflowModal();
+        if (!state.items.length) setMapEmpty("Interactive session map", "Select a session with GPS detections to inspect route points and hotspots.");
       } catch (error) {
         statusText.textContent = `Delete failed: ${error.message}`;
       }
@@ -796,11 +1544,13 @@
       if (!window.confirm("Delete all saved sessions and generated files?")) return;
       statusText.textContent = "Deleting all sessions...";
       try {
-        const res = await fetch(`${backend}/sessions`, { method: "DELETE" });
-        const data = await res.json().catch(() => ({}));
+        const { res, data } = await fetchJson(`${backend}/sessions`, { method: "DELETE" });
         if (!res.ok) throw new Error(data.error || "Delete all failed");
+        state.items = [];
+        renderResultsGrid();
+        closeWorkflowModal();
+        setMapEmpty("Interactive session map", "Select a session with GPS detections to inspect route points and hotspots.");
         statusText.textContent = `Deleted ${data.deleted_sessions ?? 0} sessions.`;
-        await loadRecentReports();
       } catch (error) {
         statusText.textContent = `Delete all failed: ${error.message}`;
       }
@@ -810,22 +1560,20 @@
       statusText.textContent = "Loading recent reports...";
       resultsGrid.innerHTML = "";
       try {
-        const res = await fetch(`${backend}/recent_reports?limit=24`, { cache: "no-store" });
-        const data = await res.json();
-        const items = Array.isArray(data.items) ? data.items : [];
-        resultCount.textContent = `${items.length} sessions`;
+        const { res, data } = await fetchJson(`${backend}/recent_reports?limit=24`, { cache: "no-store" });
+        if (!res.ok) throw new Error(data.error || "Load failed");
+        state.items = Array.isArray(data.items) ? data.items : [];
+        renderResultsGrid();
 
-        if (!items.length) {
-          resultsGrid.innerHTML = `<div class="empty"><i class="fa-regular fa-folder-open fa-2x"></i><p>No completed sessions recorded yet. Run a video, photo, or live scan from the dashboard first.</p></div>`;
+        if (!state.items.length) {
           statusText.textContent = "No recent reports found.";
           setMapEmpty("Interactive session map", "Select a session with GPS detections to inspect route points and hotspots.");
           return;
         }
 
-        resultsGrid.innerHTML = items.map(renderCard).join("");
-        statusText.textContent = `Showing ${items.length} recent sessions.`;
-        const selected = (state.selectedSessionId && items.find((item) => item.session_id === state.selectedSessionId && hasMapData(item)))
-          || items.find((item) => hasMapData(item));
+        statusText.textContent = `Showing ${state.items.length} recent sessions.`;
+        const selected = (state.selectedSessionId && state.items.find((item) => item.session_id === state.selectedSessionId && hasMapData(item)))
+          || state.items.find((item) => hasMapData(item));
         if (selected) {
           await openSessionMap(selected.session_id);
         } else {
@@ -846,9 +1594,116 @@
         openSessionMap(mapButton.getAttribute("data-open-map"));
         return;
       }
+
+      const workflowButton = event.target.closest("[data-open-workflow]");
+      if (workflowButton) {
+        openWorkflowModal(workflowButton.getAttribute("data-open-workflow"));
+        return;
+      }
+
       const button = event.target.closest("[data-delete-session]");
-      if (!button) return;
-      deleteSession(button.getAttribute("data-delete-session"));
+      if (button) deleteSession(button.getAttribute("data-delete-session"));
+    });
+
+    workflowModalClose.addEventListener("click", closeWorkflowModal);
+    workflowModalBackdrop.addEventListener("click", (event) => {
+      if (event.target === workflowModalBackdrop) closeWorkflowModal();
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && workflowModalBackdrop.classList.contains("active")) closeWorkflowModal();
+    });
+
+    workflowModalBody.addEventListener("submit", async (event) => {
+      const workflowForm = event.target.closest("#workflowForm");
+      if (workflowForm) {
+        event.preventDefault();
+        const sessionId = workflowForm.dataset.sessionId;
+        const workOrderId = workflowForm.dataset.workOrderId;
+        const payload = Object.fromEntries(new FormData(workflowForm).entries());
+        setWorkflowModalStatus(workOrderId ? "Saving work order..." : "Creating work order...");
+        try {
+          const { res, data } = await fetchJson(
+            workOrderId ? `${backend}/work_orders/${encodeURIComponent(workOrderId)}` : `${backend}/sessions/${encodeURIComponent(sessionId)}/work_order`,
+            {
+              method: workOrderId ? "PATCH" : "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            }
+          );
+          if (!res.ok) throw new Error(data.error || "Save failed");
+          await applyWorkflowResponse(data, workOrderId ? "Work order updated." : "Work order created.");
+        } catch (error) {
+          setWorkflowModalStatus(error.message || "Save failed", "error");
+        }
+        return;
+      }
+
+      const evidenceForm = event.target.closest("#evidenceForm");
+      if (evidenceForm) {
+        event.preventDefault();
+        const workOrderId = evidenceForm.dataset.workOrderId;
+        const formData = new FormData(evidenceForm);
+        const file = formData.get("file");
+        if (!(file instanceof File) || !file.name) {
+          setWorkflowModalStatus("Select an image file to upload.", "warn");
+          return;
+        }
+        setWorkflowModalStatus("Uploading evidence...");
+        try {
+          const { res, data } = await fetchJson(`${backend}/work_orders/${encodeURIComponent(workOrderId)}/evidence`, {
+            method: "POST",
+            body: formData,
+          });
+          if (!res.ok) throw new Error(data.error || "Evidence upload failed");
+          await applyWorkflowResponse(data, "Evidence uploaded.");
+        } catch (error) {
+          setWorkflowModalStatus(error.message || "Evidence upload failed", "error");
+        }
+      }
+    });
+
+    workflowModalBody.addEventListener("click", async (event) => {
+      const refreshButton = event.target.closest("[data-refresh-workflow]");
+      if (refreshButton && state.workflowSessionId) {
+        loadWorkflowDetails(state.workflowSessionId, "Refreshing workflow...");
+        return;
+      }
+
+      const actionButton = event.target.closest("[data-workflow-action]");
+      if (!actionButton) return;
+      const workOrderId = actionButton.getAttribute("data-work-order-id");
+      const action = actionButton.getAttribute("data-workflow-action");
+      const workflowForm = document.getElementById("workflowForm");
+      const formData = workflowForm ? new FormData(workflowForm) : new FormData();
+      const payload = {
+        remarks: formData.get("remarks") || "",
+        actor: formData.get("actor") || "",
+      };
+      const labels = {
+        resolve: "mark this work order as fixed",
+        verify: "verify this work order",
+        reopen: "reopen this work order",
+      };
+      if (!window.confirm(`Do you want to ${labels[action] || "update this work order"}?`)) return;
+
+      setWorkflowModalStatus("Updating work order status...");
+      try {
+        const { res, data } = await fetchJson(`${backend}/work_orders/${encodeURIComponent(workOrderId)}/${action}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error(data.error || "Status update failed");
+        const successMessages = {
+          resolve: "Work order marked fixed.",
+          verify: "Work order verified.",
+          reopen: "Work order reopened.",
+        };
+        await applyWorkflowResponse(data, successMessages[action] || "Work order updated.");
+      } catch (error) {
+        setWorkflowModalStatus(error.message || "Status update failed", "error");
+      }
     });
 
     loadRecentReports();
