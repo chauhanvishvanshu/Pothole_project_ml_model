@@ -80,6 +80,7 @@ ALLOWED_IMAGE_EXT = {"jpg", "jpeg", "png", "webp"}
 ALLOWED_EVIDENCE_KINDS = {"before", "after", "verification", "supporting"}
 WORK_ORDER_STATUSES = ("open", "assigned", "in_progress", "fixed", "verified", "reopened")
 WORK_ORDER_PRIORITIES = ("Low", "Moderate", "High", "Critical")
+SESSION_METADATA_FIELDS = ("zone", "ward", "route_name", "road_segment")
 FRAME_WIDTH = int(os.environ.get("FRAME_WIDTH", 1280))
 FRAME_HEIGHT = int(os.environ.get("FRAME_HEIGHT", 720))
 VIDEO_FRAME_WIDTH = int(os.environ.get("VIDEO_FRAME_WIDTH", FRAME_WIDTH))
@@ -724,6 +725,37 @@ def normalize_evidence_kind(value, default="supporting"):
     return text if text in ALLOWED_EVIDENCE_KINDS else default
 
 
+def normalize_session_metadata(source=None):
+    source = source or {}
+    return {
+        field: clean_text(source.get(field), max_length=160)
+        for field in SESSION_METADATA_FIELDS
+    }
+
+
+def metadata_value(payload, field, default=""):
+    if not payload:
+        return default
+    return clean_text(payload.get(field), max_length=160) or default
+
+
+def metadata_location_label(payload):
+    route_name = metadata_value(payload, "route_name")
+    road_segment = metadata_value(payload, "road_segment")
+    ward = metadata_value(payload, "ward")
+    zone = metadata_value(payload, "zone")
+
+    primary = " / ".join([part for part in (route_name, road_segment) if part])
+    secondary = ", ".join([part for part in (ward, zone) if part])
+    if primary and secondary:
+        return f"{primary} ({secondary})"
+    if primary:
+        return primary
+    if secondary:
+        return secondary
+    return "Unassigned area"
+
+
 def workflow_file_url(path):
     resolved = resolve_managed_path(path)
     if not resolved:
@@ -1344,10 +1376,11 @@ import queue
 sessions = {}
 sessions_lock = threading.Lock()
 
-def create_session_entry(video_path, original_name, start_coords=None, end_coords=None, source_type="video"):
+def create_session_entry(video_path, original_name, start_coords=None, end_coords=None, source_type="video", metadata=None):
     sid = uuid.uuid4().hex[:12]
     created_at = time.time()
     initial_summary = summarize_logs([])
+    metadata = normalize_session_metadata(metadata)
     
     session_snapshot_dir = os.path.join(SNAPSHOT_DIR, sid)
     os.makedirs(session_snapshot_dir, exist_ok=True)
@@ -1370,6 +1403,10 @@ def create_session_entry(video_path, original_name, start_coords=None, end_coord
         "start_coords": start_coords,
         "end_coords": end_coords,
         "video_name": original_name,
+        "zone": metadata.get("zone", ""),
+        "ward": metadata.get("ward", ""),
+        "route_name": metadata.get("route_name", ""),
+        "road_segment": metadata.get("road_segment", ""),
         "frame_q": queue.Queue(maxsize=FRAME_QUEUE_MAX),
         "result_q": queue.Queue(maxsize=RESULT_QUEUE_MAX),
         "stop_event": threading.Event(),
@@ -2407,6 +2444,9 @@ def attach_work_order_summary(payload):
     if not isinstance(payload, dict):
         return payload
     session_id = payload.get("session_id")
+    normalized_metadata = normalize_session_metadata(payload)
+    payload.update(normalized_metadata)
+    payload["location_label"] = metadata_location_label(payload)
     work_order = get_work_order_by_session(session_id) if session_id else None
     payload["work_order"] = work_order
     payload["has_work_order"] = bool(work_order)
@@ -2446,6 +2486,11 @@ def session_report_payload(s):
         "hotspots": s.get("hotspots", []),
         "highlights": s.get("highlights", []),
         "video_name": s.get("video_name"),
+        "zone": s.get("zone", ""),
+        "ward": s.get("ward", ""),
+        "route_name": s.get("route_name", ""),
+        "road_segment": s.get("road_segment", ""),
+        "location_label": metadata_location_label(s),
     }
     return attach_work_order_summary(payload)
 
@@ -2527,6 +2572,48 @@ def load_manifest_record(sid):
         except Exception:
             continue
     return None
+
+
+def write_manifest_record(path, payload):
+    if not path or not payload:
+        return None
+    cleaned = dict(payload)
+    cleaned.pop("_manifest_path", None)
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(cleaned, f, separators=(",", ":"))
+        return path
+    except Exception:
+        traceback.print_exc()
+        return None
+
+
+def update_session_metadata_fields(sid, metadata):
+    normalized = normalize_session_metadata(metadata)
+    found = False
+    with sessions_lock:
+        session_obj = sessions.get(sid)
+        if session_obj:
+            session_obj.update(normalized)
+            session_obj["last_activity"] = time.time()
+            found = True
+
+    manifest_payload = load_manifest_record(sid)
+    if manifest_payload:
+        manifest_payload.update(normalized)
+        manifest_payload["location_label"] = metadata_location_label(manifest_payload)
+        write_manifest_record(manifest_payload.get("_manifest_path"), manifest_payload)
+        found = True
+
+    if not found:
+        return None
+
+    with sessions_lock:
+        session_obj = sessions.get(sid)
+    if session_obj:
+        save_session_manifest(sid)
+
+    return session_reference_payload(sid)
 
 def collect_session_artifact_paths(sid, entry=None, manifest_payload=None):
     paths = []
@@ -2659,6 +2746,486 @@ def session_reference_payload(session_id):
     return attach_work_order_summary(payload)
 
 
+def metadata_from_request_mapping(mapping):
+    return normalize_session_metadata(mapping or {})
+
+
+def manifest_timestamp(payload):
+    for key in ("generated_at", "created_at", "last_activity", "manifest_mtime"):
+        value = safe_float((payload or {}).get(key))
+        if value and value > 0:
+            return float(value)
+    return 0.0
+
+
+def parse_filter_date(value, end_of_day=False):
+    text = clean_text(value, max_length=32)
+    if not text:
+        return None
+    try:
+        dt = datetime.strptime(text[:10], "%Y-%m-%d")
+        if end_of_day:
+            dt += timedelta(days=1)
+        return dt.timestamp()
+    except Exception:
+        return None
+
+
+def parse_analytics_filters(args):
+    source = args or {}
+    return {
+        "date_from": parse_filter_date(source.get("date_from")),
+        "date_to": parse_filter_date(source.get("date_to"), end_of_day=True),
+        "zone": clean_text(source.get("zone"), max_length=160),
+        "ward": clean_text(source.get("ward"), max_length=160),
+        "route_name": clean_text(source.get("route_name"), max_length=160),
+        "road_segment": clean_text(source.get("road_segment"), max_length=160),
+        "severity": clean_text(source.get("severity"), max_length=32),
+        "status": normalize_work_order_status(source.get("status"), default="") if clean_text(source.get("status")) else "",
+    }
+
+
+def session_matches_analytics_filters(item, filters):
+    filters = filters or {}
+    timestamp = manifest_timestamp(item)
+    date_from = filters.get("date_from")
+    date_to = filters.get("date_to")
+    if date_from and timestamp and timestamp < date_from:
+        return False
+    if date_to and timestamp and timestamp >= date_to:
+        return False
+
+    for field in ("zone", "ward", "route_name", "road_segment"):
+        selected = clean_text(filters.get(field), max_length=160)
+        if selected and metadata_value(item, field).lower() != selected.lower():
+            return False
+
+    severity = clean_text(filters.get("severity"), max_length=32)
+    if severity:
+        severity_counts = item.get("severity_counts") or {}
+        if not severity_counts.get(severity):
+            return False
+
+    status = clean_text(filters.get("status"), max_length=32)
+    if status:
+        work_order = item.get("work_order") or {}
+        if clean_text(work_order.get("status"), max_length=32).lower() != status.lower():
+            return False
+
+    return True
+
+
+def analytics_manifest_records():
+    items = []
+    for path in iter_manifest_paths():
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            payload.pop("_storage", None)
+            payload["manifest_file"] = os.path.basename(path)
+            payload["manifest_mtime"] = os.path.getmtime(path)
+            attach_work_order_summary(payload)
+            items.append(payload)
+        except Exception:
+            continue
+    return items
+
+
+def analytics_filter_options(items):
+    def unique_values(field):
+        seen = set()
+        values = []
+        for item in items:
+            value = metadata_value(item, field)
+            if value and value not in seen:
+                seen.add(value)
+                values.append(value)
+        return sorted(values, key=str.lower)
+
+    statuses = []
+    status_seen = set()
+    for item in items:
+        work_order = item.get("work_order") or {}
+        status = clean_text(work_order.get("status"), max_length=32)
+        if status and status not in status_seen:
+            status_seen.add(status)
+            statuses.append(status)
+
+    return {
+        "zones": unique_values("zone"),
+        "wards": unique_values("ward"),
+        "routes": unique_values("route_name"),
+        "segments": unique_values("road_segment"),
+        "statuses": sorted(statuses),
+        "severities": list(SEVERITY_LEVELS),
+    }
+
+
+def analytics_summary(filtered_items):
+    if not filtered_items:
+        return {
+            "session_count": 0,
+            "detection_count": 0,
+            "total_area": 0.0,
+            "avg_health_score": 0.0,
+            "resolved_count": 0,
+            "verified_count": 0,
+            "open_work_orders": 0,
+            "zone_count": 0,
+            "route_count": 0,
+        }
+
+    total_sessions = len(filtered_items)
+    total_detections = sum(int(item.get("total_detections") or 0) for item in filtered_items)
+    total_area = sum(safe_float(item.get("total_area"), 0.0) or 0.0 for item in filtered_items)
+    health_scores = [safe_float(item.get("road_health_score")) for item in filtered_items]
+    health_scores = [score for score in health_scores if score is not None]
+    resolved_count = 0
+    verified_count = 0
+    open_work_orders = 0
+    zones = set()
+    routes = set()
+    for item in filtered_items:
+        zone = metadata_value(item, "zone")
+        route_name = metadata_value(item, "route_name")
+        if zone:
+            zones.add(zone)
+        if route_name:
+            routes.add(route_name)
+        status = clean_text(((item.get("work_order") or {}).get("status")), max_length=32)
+        if status in ("fixed", "verified"):
+            resolved_count += 1
+        if status == "verified":
+            verified_count += 1
+        if status and status not in ("fixed", "verified"):
+            open_work_orders += 1
+
+    return {
+        "session_count": total_sessions,
+        "detection_count": total_detections,
+        "total_area": round(total_area, 2),
+        "avg_health_score": round(sum(health_scores) / len(health_scores), 2) if health_scores else 0.0,
+        "resolved_count": resolved_count,
+        "verified_count": verified_count,
+        "open_work_orders": open_work_orders,
+        "zone_count": len(zones),
+        "route_count": len(routes),
+    }
+
+
+def build_zone_summaries(filtered_items):
+    grouped = {}
+    for item in filtered_items:
+        zone = metadata_value(item, "zone") or "Unassigned"
+        bucket = grouped.setdefault(zone, {
+            "zone": zone,
+            "session_count": 0,
+            "detection_count": 0,
+            "total_area": 0.0,
+            "health_scores": [],
+            "resolved_count": 0,
+            "verified_count": 0,
+            "wards": set(),
+            "routes": set(),
+        })
+        bucket["session_count"] += 1
+        bucket["detection_count"] += int(item.get("total_detections") or 0)
+        bucket["total_area"] += safe_float(item.get("total_area"), 0.0) or 0.0
+        score = safe_float(item.get("road_health_score"))
+        if score is not None:
+            bucket["health_scores"].append(score)
+        ward = metadata_value(item, "ward")
+        route_name = metadata_value(item, "route_name")
+        if ward:
+            bucket["wards"].add(ward)
+        if route_name:
+            bucket["routes"].add(route_name)
+        status = clean_text(((item.get("work_order") or {}).get("status")), max_length=32)
+        if status in ("fixed", "verified"):
+            bucket["resolved_count"] += 1
+        if status == "verified":
+            bucket["verified_count"] += 1
+
+    rows = []
+    for bucket in grouped.values():
+        rows.append({
+            "zone": bucket["zone"],
+            "session_count": bucket["session_count"],
+            "detection_count": bucket["detection_count"],
+            "total_area": round(bucket["total_area"], 2),
+            "avg_health_score": round(sum(bucket["health_scores"]) / len(bucket["health_scores"]), 2) if bucket["health_scores"] else 0.0,
+            "resolved_count": bucket["resolved_count"],
+            "verified_count": bucket["verified_count"],
+            "ward_count": len(bucket["wards"]),
+            "route_count": len(bucket["routes"]),
+        })
+    return sorted(rows, key=lambda item: (item["detection_count"], item["session_count"]), reverse=True)
+
+
+def build_ward_summaries(filtered_items):
+    grouped = {}
+    for item in filtered_items:
+        ward = metadata_value(item, "ward") or "Unassigned"
+        zone = metadata_value(item, "zone") or "Unassigned"
+        key = (zone, ward)
+        bucket = grouped.setdefault(key, {
+            "zone": zone,
+            "ward": ward,
+            "session_count": 0,
+            "detection_count": 0,
+            "total_area": 0.0,
+            "health_scores": [],
+            "resolved_count": 0,
+        })
+        bucket["session_count"] += 1
+        bucket["detection_count"] += int(item.get("total_detections") or 0)
+        bucket["total_area"] += safe_float(item.get("total_area"), 0.0) or 0.0
+        score = safe_float(item.get("road_health_score"))
+        if score is not None:
+            bucket["health_scores"].append(score)
+        status = clean_text(((item.get("work_order") or {}).get("status")), max_length=32)
+        if status in ("fixed", "verified"):
+            bucket["resolved_count"] += 1
+
+    rows = []
+    for bucket in grouped.values():
+        rows.append({
+            "zone": bucket["zone"],
+            "ward": bucket["ward"],
+            "session_count": bucket["session_count"],
+            "detection_count": bucket["detection_count"],
+            "total_area": round(bucket["total_area"], 2),
+            "avg_health_score": round(sum(bucket["health_scores"]) / len(bucket["health_scores"]), 2) if bucket["health_scores"] else 0.0,
+            "resolved_count": bucket["resolved_count"],
+        })
+    return sorted(rows, key=lambda item: (item["detection_count"], item["session_count"]), reverse=True)
+
+
+def build_route_summaries(filtered_items):
+    grouped = {}
+    for item in filtered_items:
+        route_name = metadata_value(item, "route_name") or "Unassigned"
+        road_segment = metadata_value(item, "road_segment") or "General"
+        key = (route_name, road_segment)
+        bucket = grouped.setdefault(key, {
+            "route_name": route_name,
+            "road_segment": road_segment,
+            "zone": metadata_value(item, "zone"),
+            "ward": metadata_value(item, "ward"),
+            "session_count": 0,
+            "detection_count": 0,
+            "total_area": 0.0,
+            "health_scores": [],
+            "resolved_count": 0,
+            "latest_run_at": 0.0,
+        })
+        bucket["session_count"] += 1
+        bucket["detection_count"] += int(item.get("total_detections") or 0)
+        bucket["total_area"] += safe_float(item.get("total_area"), 0.0) or 0.0
+        score = safe_float(item.get("road_health_score"))
+        if score is not None:
+            bucket["health_scores"].append(score)
+        status = clean_text(((item.get("work_order") or {}).get("status")), max_length=32)
+        if status in ("fixed", "verified"):
+            bucket["resolved_count"] += 1
+        bucket["latest_run_at"] = max(bucket["latest_run_at"], manifest_timestamp(item))
+
+    rows = []
+    for bucket in grouped.values():
+        rows.append({
+            "route_name": bucket["route_name"],
+            "road_segment": bucket["road_segment"],
+            "zone": bucket["zone"] or "Unassigned",
+            "ward": bucket["ward"] or "Unassigned",
+            "session_count": bucket["session_count"],
+            "detection_count": bucket["detection_count"],
+            "total_area": round(bucket["total_area"], 2),
+            "avg_health_score": round(sum(bucket["health_scores"]) / len(bucket["health_scores"]), 2) if bucket["health_scores"] else 0.0,
+            "resolved_count": bucket["resolved_count"],
+            "latest_run_at": bucket["latest_run_at"] or None,
+        })
+    return sorted(rows, key=lambda item: (item["detection_count"], item["session_count"]), reverse=True)
+
+
+def build_monthly_trends(filtered_items):
+    grouped = {}
+    for item in filtered_items:
+        timestamp = manifest_timestamp(item)
+        if not timestamp:
+            continue
+        month_key = datetime.fromtimestamp(timestamp).strftime("%Y-%m")
+        bucket = grouped.setdefault(month_key, {
+            "month": month_key,
+            "session_count": 0,
+            "detection_count": 0,
+            "total_area": 0.0,
+            "health_scores": [],
+            "resolved_count": 0,
+        })
+        bucket["session_count"] += 1
+        bucket["detection_count"] += int(item.get("total_detections") or 0)
+        bucket["total_area"] += safe_float(item.get("total_area"), 0.0) or 0.0
+        score = safe_float(item.get("road_health_score"))
+        if score is not None:
+            bucket["health_scores"].append(score)
+        status = clean_text(((item.get("work_order") or {}).get("status")), max_length=32)
+        if status in ("fixed", "verified"):
+            bucket["resolved_count"] += 1
+
+    rows = []
+    for bucket in sorted(grouped.values(), key=lambda item: item["month"]):
+        rows.append({
+            "month": bucket["month"],
+            "session_count": bucket["session_count"],
+            "detection_count": bucket["detection_count"],
+            "total_area": round(bucket["total_area"], 2),
+            "avg_health_score": round(sum(bucket["health_scores"]) / len(bucket["health_scores"]), 2) if bucket["health_scores"] else 0.0,
+            "resolved_count": bucket["resolved_count"],
+        })
+    return rows
+
+
+def build_repeat_area_rankings(filtered_items):
+    grouped = {}
+    for item in filtered_items:
+        hotspots = item.get("hotspots") or []
+        if hotspots:
+            for hotspot in hotspots:
+                label = clean_text(hotspot.get("label"), max_length=160) or metadata_location_label(item)
+                key = (
+                    metadata_value(item, "zone") or "Unassigned",
+                    metadata_value(item, "route_name") or "Unassigned",
+                    metadata_value(item, "road_segment") or "General",
+                    label,
+                )
+                bucket = grouped.setdefault(key, {
+                    "zone": key[0],
+                    "route_name": key[1],
+                    "road_segment": key[2],
+                    "label": label,
+                    "session_ids": set(),
+                    "count": 0,
+                    "total_area": 0.0,
+                    "top_severity": "Minor",
+                })
+                bucket["session_ids"].add(item.get("session_id"))
+                bucket["count"] += int(hotspot.get("count") or 0)
+                bucket["total_area"] += safe_float(hotspot.get("total_area"), 0.0) or 0.0
+                top_severity = hotspot.get("top_severity", "Minor")
+                if severity_rank(top_severity) > severity_rank(bucket["top_severity"]):
+                    bucket["top_severity"] = top_severity
+        else:
+            label = metadata_location_label(item)
+            key = (
+                metadata_value(item, "zone") or "Unassigned",
+                metadata_value(item, "route_name") or "Unassigned",
+                metadata_value(item, "road_segment") or "General",
+                label,
+            )
+            bucket = grouped.setdefault(key, {
+                "zone": key[0],
+                "route_name": key[1],
+                "road_segment": key[2],
+                "label": label,
+                "session_ids": set(),
+                "count": 0,
+                "total_area": 0.0,
+                "top_severity": item.get("top_severity", "Minor"),
+            })
+            bucket["session_ids"].add(item.get("session_id"))
+            bucket["count"] += int(item.get("total_detections") or 0)
+            bucket["total_area"] += safe_float(item.get("total_area"), 0.0) or 0.0
+
+    rows = []
+    for bucket in grouped.values():
+        rows.append({
+            "zone": bucket["zone"],
+            "route_name": bucket["route_name"],
+            "road_segment": bucket["road_segment"],
+            "label": bucket["label"],
+            "session_count": len(bucket["session_ids"]),
+            "detection_count": bucket["count"],
+            "total_area": round(bucket["total_area"], 2),
+            "top_severity": bucket["top_severity"],
+        })
+    return sorted(rows, key=lambda item: (item["detection_count"], item["session_count"]), reverse=True)[:20]
+
+
+def build_heat_points(filtered_items, severity_filter=""):
+    points = {}
+    severity_filter = clean_text(severity_filter, max_length=32)
+    for item in filtered_items:
+        logs = parse_csv_logs(item.get("csv_path"))
+        for log in logs:
+            lat = safe_float(log.get("latitude"))
+            lon = safe_float(log.get("longitude"))
+            if lat is None or lon is None:
+                continue
+            severity = clean_text(log.get("severity"), max_length=32) or "Minor"
+            if severity_filter and severity != severity_filter:
+                continue
+            key = (round(lat, 5), round(lon, 5), severity)
+            bucket = points.setdefault(key, {
+                "lat": round(lat, 5),
+                "lon": round(lon, 5),
+                "severity": severity,
+                "intensity": 0.0,
+                "detection_count": 0,
+                "zone": metadata_value(item, "zone"),
+                "ward": metadata_value(item, "ward"),
+                "route_name": metadata_value(item, "route_name"),
+                "road_segment": metadata_value(item, "road_segment"),
+            })
+            bucket["detection_count"] += 1
+            bucket["intensity"] += SEVERITY_WEIGHTS.get(severity, 1.0)
+
+    rows = list(points.values())
+    rows.sort(key=lambda item: (item["intensity"], item["detection_count"]), reverse=True)
+    return rows[:1500]
+
+
+def analytics_recent_sessions(filtered_items, limit=12):
+    ordered = sorted(filtered_items, key=manifest_timestamp, reverse=True)
+    return [{
+        "session_id": item.get("session_id"),
+        "video_name": item.get("video_name"),
+        "source_type": item.get("source_type"),
+        "generated_at": manifest_timestamp(item),
+        "location_label": metadata_location_label(item),
+        "zone": metadata_value(item, "zone"),
+        "ward": metadata_value(item, "ward"),
+        "route_name": metadata_value(item, "route_name"),
+        "road_segment": metadata_value(item, "road_segment"),
+        "total_detections": int(item.get("total_detections") or 0),
+        "total_area": round(safe_float(item.get("total_area"), 0.0) or 0.0, 2),
+        "road_health_score": safe_float(item.get("road_health_score"), 0.0) or 0.0,
+        "workflow_status": clean_text(((item.get("work_order") or {}).get("status")), max_length=32),
+    } for item in ordered[:limit]]
+
+
+def analytics_payload(filters, include_heat_points=False):
+    items = analytics_manifest_records()
+    filtered = [item for item in items if session_matches_analytics_filters(item, filters)]
+    payload = {
+        "filters": analytics_filter_options(items),
+        "active_filters": {
+            key: value
+            for key, value in (filters or {}).items()
+            if value not in ("", None)
+        },
+        "summary": analytics_summary(filtered),
+        "zone_summaries": build_zone_summaries(filtered),
+        "ward_summaries": build_ward_summaries(filtered),
+        "route_summaries": build_route_summaries(filtered),
+        "monthly_trends": build_monthly_trends(filtered),
+        "repeat_areas": build_repeat_area_rankings(filtered),
+        "recent_sessions": analytics_recent_sessions(filtered),
+    }
+    if include_heat_points:
+        payload["heat_points"] = build_heat_points(filtered, severity_filter=filters.get("severity"))
+    return payload
+
+
 def work_order_detail_payload(work_order_id):
     work_order = get_work_order_by_id(work_order_id, include_events=True, include_evidence=True)
     if not work_order:
@@ -2700,6 +3267,66 @@ def session_work_order(sid):
         "session": session_payload,
         "work_order": work_order,
     }), status_code
+
+
+@app.route("/sessions/<sid>/metadata", methods=["GET", "PATCH"])
+def session_metadata_route(sid):
+    if request.method == "GET":
+        payload = session_reference_payload(sid)
+        if not payload:
+            return jsonify({"error": "Invalid session"}), 404
+        return jsonify({
+            "session_id": sid,
+            "zone": payload.get("zone", ""),
+            "ward": payload.get("ward", ""),
+            "route_name": payload.get("route_name", ""),
+            "road_segment": payload.get("road_segment", ""),
+            "location_label": payload.get("location_label", metadata_location_label(payload)),
+        })
+
+    payload = update_session_metadata_fields(sid, request_payload_dict())
+    if not payload:
+        return jsonify({"error": "Invalid session"}), 404
+    return jsonify({
+        "status": "updated",
+        "session": payload,
+    })
+
+
+@app.route("/analytics/overview")
+def analytics_overview_route():
+    filters = parse_analytics_filters(request.args)
+    payload = analytics_payload(filters, include_heat_points=False)
+    return jsonify(payload)
+
+
+@app.route("/analytics/zones")
+def analytics_zones_route():
+    filters = parse_analytics_filters(request.args)
+    payload = analytics_payload(filters, include_heat_points=True)
+    return jsonify({
+        "filters": payload.get("filters", {}),
+        "active_filters": payload.get("active_filters", {}),
+        "summary": payload.get("summary", {}),
+        "zone_summaries": payload.get("zone_summaries", []),
+        "ward_summaries": payload.get("ward_summaries", []),
+        "repeat_areas": payload.get("repeat_areas", []),
+        "heat_points": payload.get("heat_points", []),
+    })
+
+
+@app.route("/analytics/routes")
+def analytics_routes_route():
+    filters = parse_analytics_filters(request.args)
+    payload = analytics_payload(filters, include_heat_points=False)
+    return jsonify({
+        "filters": payload.get("filters", {}),
+        "active_filters": payload.get("active_filters", {}),
+        "summary": payload.get("summary", {}),
+        "route_summaries": payload.get("route_summaries", []),
+        "monthly_trends": payload.get("monthly_trends", []),
+        "recent_sessions": payload.get("recent_sessions", []),
+    })
 
 
 @app.route("/work_orders")
@@ -2794,6 +3421,7 @@ def upload():
     
     start_c = request.form.get("start_coords")
     end_c = request.form.get("end_coords")
+    metadata = metadata_from_request_mapping(request.form)
 
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     filename = secure_filename(f.filename)
@@ -2804,7 +3432,7 @@ def upload():
         path = os.path.join(UPLOAD_DIR, filename)
     f.save(path)
     
-    entry = create_session_entry(path, f.filename, start_c, end_c, source_type="video")
+    entry = create_session_entry(path, f.filename, start_c, end_c, source_type="video", metadata=metadata)
     sid = entry["session_id"]
     start_video_processing(sid)
     threading.Thread(target=lambda: auto_cleanup(UPLOAD_DIR, MAX_FILES_UPLOADS), daemon=True).start()
@@ -2836,7 +3464,8 @@ def upload_photo():
     with open(source_path, "wb") as out:
         out.write(raw)
 
-    entry = create_session_entry(source_path, safe_name, source_type="photo")
+    metadata = metadata_from_request_mapping(request.form)
+    entry = create_session_entry(source_path, safe_name, source_type="photo", metadata=metadata)
     sid = entry["session_id"]
 
     out_frame, logs = analyze_frame(
@@ -2878,7 +3507,8 @@ def live_start():
     source_name = secure_filename(data.get("source_name") or "live_dashcam") or "live_dashcam"
     start_c = data.get("start_coords")
     end_c = data.get("end_coords")
-    entry = create_session_entry("", source_name, start_c, end_c, source_type="live")
+    metadata = metadata_from_request_mapping(data)
+    entry = create_session_entry("", source_name, start_c, end_c, source_type="live", metadata=metadata)
     sid = entry["session_id"]
     live_config = {
         "frame_width": clamp_int(data.get("frame_width"), LIVE_FRAME_WIDTH, 320, 1920),

@@ -41,3 +41,4 @@ backend/reports/
 # Temporary media / archives
 *.tmp
 *.temp
+*.db

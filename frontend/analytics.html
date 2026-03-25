@@ -1,0 +1,1705 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Road Watch Analytics</title>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <style>
+    :root {
+      --ink: #102033;
+      --muted: #5f7083;
+      --line: rgba(16, 32, 51, 0.1);
+      --blue: #1268f3;
+      --blue-deep: #0b2d6e;
+      --teal: #0f766e;
+      --amber: #b45309;
+      --danger: #b91c1c;
+      --surface: rgba(255, 255, 255, 0.92);
+      --bg: linear-gradient(180deg, #f5f8fc 0%, #eef4fb 54%, #f7fafc 100%);
+      --shadow: 0 18px 44px rgba(16, 32, 51, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      font-family: "Manrope", sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      position: relative;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(255, 255, 255, 0.15) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.15) 1px, transparent 1px);
+      background-size: 74px 74px;
+      mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.42), transparent 82%);
+      opacity: 0.34;
+    }
+
+    .shell {
+      max-width: 1360px;
+      margin: 0 auto;
+      padding: 24px 18px 42px;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 18px;
+      padding: 12px 14px;
+      border: 1px solid rgba(255, 255, 255, 0.62);
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.58);
+      backdrop-filter: blur(18px);
+      box-shadow: 0 14px 36px rgba(15, 23, 42, 0.08);
+      position: sticky;
+      top: 14px;
+      z-index: 30;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: inherit;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      font-size: 1.2rem;
+    }
+
+    .brand-badge {
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      background: linear-gradient(135deg, var(--blue), var(--blue-deep));
+    }
+
+    .nav {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .nav a {
+      text-decoration: none;
+      color: var(--ink);
+      padding: 10px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.78);
+      font-weight: 600;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+    }
+
+    .nav a:hover {
+      transform: translateY(-1px);
+      border-color: rgba(18, 104, 243, 0.16);
+      box-shadow: 0 10px 22px rgba(15, 23, 42, 0.06);
+    }
+
+    .nav a.active {
+      color: #fff;
+      background: linear-gradient(135deg, var(--blue), var(--blue-deep));
+      border-color: transparent;
+      box-shadow: 0 12px 30px rgba(18, 104, 243, 0.18);
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.6fr) minmax(320px, 0.9fr);
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+
+    .hero-main,
+    .hero-side,
+    .panel,
+    .metric-card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      box-shadow: var(--shadow);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero-main {
+      padding: 28px;
+      color: #fff;
+      background:
+        radial-gradient(circle at top right, rgba(255, 255, 255, 0.14), transparent 40%),
+        linear-gradient(135deg, rgba(18, 104, 243, 0.98), rgba(11, 45, 110, 0.98));
+    }
+
+    .hero-main::after {
+      content: "";
+      position: absolute;
+      right: -110px;
+      bottom: -120px;
+      width: 280px;
+      height: 280px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      background: rgba(255, 255, 255, 0.12);
+      font-size: 0.92rem;
+      font-weight: 700;
+      margin-bottom: 18px;
+    }
+
+    .hero-main h1 {
+      margin: 0 0 12px;
+      font-family: "Space Grotesk", sans-serif;
+      font-size: clamp(2.2rem, 4vw, 3.4rem);
+      line-height: 0.96;
+      letter-spacing: -0.05em;
+      max-width: 780px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .hero-main p {
+      margin: 0;
+      max-width: 760px;
+      line-height: 1.65;
+      color: rgba(255, 255, 255, 0.9);
+      position: relative;
+      z-index: 1;
+    }
+
+    .hero-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 20px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .hero-chip {
+      padding: 10px 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.14);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      font-size: 0.92rem;
+    }
+
+    .hero-side {
+      padding: 24px;
+      display: grid;
+      gap: 16px;
+      align-content: start;
+      background:
+        radial-gradient(circle at top right, rgba(15, 118, 110, 0.08), transparent 42%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(250, 252, 255, 0.88));
+    }
+
+    .hero-side h2,
+    .panel h2 {
+      margin: 0;
+      font-size: 1.05rem;
+      letter-spacing: -0.02em;
+    }
+
+    .hero-side p,
+    .panel-copy {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      border-radius: 999px;
+      background: rgba(18, 104, 243, 0.08);
+      color: var(--blue-deep);
+      border: 1px solid rgba(18, 104, 243, 0.12);
+      font-weight: 700;
+    }
+
+    .status-pill.warn {
+      background: rgba(180, 83, 9, 0.08);
+      color: var(--amber);
+      border-color: rgba(180, 83, 9, 0.14);
+    }
+
+    .status-pill.error {
+      background: rgba(185, 28, 28, 0.08);
+      color: var(--danger);
+      border-color: rgba(185, 28, 28, 0.16);
+    }
+
+    .status-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .status-line {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 18px;
+      background: rgba(245, 248, 252, 0.9);
+      border: 1px solid rgba(16, 32, 51, 0.06);
+      font-size: 0.95rem;
+    }
+
+    .status-line span {
+      color: var(--muted);
+    }
+
+    .toolbar {
+      display: grid;
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+
+    .panel {
+      padding: 22px;
+    }
+
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 14px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    .panel-head h2 {
+      font-family: "Space Grotesk", sans-serif;
+      font-size: 1.15rem;
+    }
+
+    .panel-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .button {
+      border: none;
+      border-radius: 14px;
+      padding: 12px 16px;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+      color: #fff;
+      background: linear-gradient(135deg, var(--blue), var(--blue-deep));
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 16px 30px rgba(18, 104, 243, 0.16);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .button:hover {
+      transform: translateY(-1px);
+    }
+
+    .button.secondary {
+      background: linear-gradient(135deg, #0f766e, #115e59);
+      box-shadow: 0 14px 30px rgba(15, 118, 110, 0.18);
+    }
+
+    .button.ghost {
+      color: var(--ink);
+      background: #fff;
+      border: 1px solid var(--line);
+      box-shadow: none;
+    }
+
+    .filters {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .field {
+      display: grid;
+      gap: 8px;
+      grid-column: span 3;
+    }
+
+    .field label {
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: var(--muted);
+    }
+
+    .field input,
+    .field select {
+      width: 100%;
+      border-radius: 14px;
+      border: 1px solid rgba(16, 32, 51, 0.12);
+      padding: 12px 14px;
+      font: inherit;
+      color: var(--ink);
+      background: rgba(255, 255, 255, 0.95);
+      outline: none;
+      transition: border-color 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .field input:focus,
+    .field select:focus {
+      border-color: rgba(18, 104, 243, 0.38);
+      box-shadow: 0 0 0 4px rgba(18, 104, 243, 0.08);
+    }
+
+    .active-filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+      min-height: 24px;
+    }
+
+    .filter-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 12px;
+      border-radius: 999px;
+      background: rgba(18, 104, 243, 0.08);
+      color: var(--blue-deep);
+      border: 1px solid rgba(18, 104, 243, 0.12);
+      font-size: 0.9rem;
+      font-weight: 700;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    .metric-card {
+      padding: 18px;
+      display: grid;
+      gap: 6px;
+      transform: translateY(8px);
+      opacity: 0;
+      animation: rise-in 0.55s ease forwards;
+    }
+
+    .metric-card:nth-child(2) { animation-delay: 0.04s; }
+    .metric-card:nth-child(3) { animation-delay: 0.08s; }
+    .metric-card:nth-child(4) { animation-delay: 0.12s; }
+    .metric-card:nth-child(5) { animation-delay: 0.16s; }
+    .metric-card:nth-child(6) { animation-delay: 0.2s; }
+    .metric-card:nth-child(7) { animation-delay: 0.24s; }
+    .metric-card:nth-child(8) { animation-delay: 0.28s; }
+
+    @keyframes rise-in {
+      from { transform: translateY(8px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    .metric-card span {
+      color: var(--muted);
+      font-size: 0.92rem;
+      font-weight: 700;
+    }
+
+    .metric-card strong {
+      font-size: clamp(1.45rem, 2vw, 2rem);
+      letter-spacing: -0.04em;
+    }
+
+    .metric-card small {
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .dashboard {
+      display: grid;
+      grid-template-columns: minmax(0, 1.45fr) minmax(300px, 0.95fr);
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+
+    .map-panel {
+      min-height: 560px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .map-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .map-copy {
+      max-width: 620px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .map-stage {
+      position: relative;
+      border-radius: 24px;
+      overflow: hidden;
+      border: 1px solid rgba(16, 32, 51, 0.08);
+      min-height: 430px;
+      background: linear-gradient(180deg, rgba(231, 240, 252, 0.7), rgba(241, 246, 253, 0.92));
+    }
+
+    #analyticsMap {
+      position: absolute;
+      inset: 0;
+      display: none;
+    }
+
+    #analyticsMap.active {
+      display: block;
+    }
+
+    .map-empty {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      padding: 24px;
+      color: var(--muted);
+      z-index: 2;
+    }
+
+    .map-empty.hidden {
+      display: none;
+    }
+
+    .map-empty div {
+      max-width: 320px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 4px;
+    }
+
+    .legend-chip,
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-size: 0.88rem;
+      border: 1px solid rgba(16, 32, 51, 0.1);
+      background: rgba(255, 255, 255, 0.9);
+    }
+
+    .legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .stack {
+      display: grid;
+      gap: 18px;
+    }
+
+    .insight-list,
+    .session-list,
+    .queue-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .insight-card,
+    .session-card,
+    .queue-card {
+      border-radius: 22px;
+      border: 1px solid rgba(16, 32, 51, 0.08);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(247, 250, 253, 0.88));
+      padding: 16px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .insight-top,
+    .session-top,
+    .queue-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+    }
+
+    .insight-top strong,
+    .session-title,
+    .queue-title {
+      font-size: 1rem;
+      letter-spacing: -0.02em;
+    }
+
+    .subtle {
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    .tag.severity-severe,
+    .status.verified {
+      color: #fff;
+      background: linear-gradient(135deg, #0f766e, #115e59);
+      border-color: transparent;
+    }
+
+    .tag.severity-major,
+    .status.fixed {
+      color: #fff;
+      background: linear-gradient(135deg, #ea580c, #c2410c);
+      border-color: transparent;
+    }
+
+    .tag.severity-moderate,
+    .status.in_progress,
+    .status.assigned {
+      color: #fff;
+      background: linear-gradient(135deg, #d97706, #b45309);
+      border-color: transparent;
+    }
+
+    .tag.severity-minor,
+    .status.open,
+    .status.reopened {
+      color: #0b2d6e;
+      background: rgba(18, 104, 243, 0.1);
+      border-color: rgba(18, 104, 243, 0.14);
+    }
+
+    .status.none {
+      color: var(--muted);
+      background: rgba(16, 32, 51, 0.06);
+    }
+
+    .mini-stats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .mini-stat {
+      padding: 8px 10px;
+      border-radius: 14px;
+      border: 1px solid rgba(16, 32, 51, 0.08);
+      background: rgba(255, 255, 255, 0.92);
+      font-size: 0.88rem;
+    }
+
+    .split {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+
+    .chart-wrap {
+      min-height: 360px;
+      position: relative;
+      display: grid;
+      gap: 14px;
+    }
+
+    .chart-fallback {
+      display: grid;
+      gap: 10px;
+    }
+
+    .table-panel {
+      display: grid;
+      gap: 14px;
+    }
+
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid rgba(16, 32, 51, 0.08);
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.88);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 720px;
+    }
+
+    th,
+    td {
+      text-align: left;
+      padding: 14px 16px;
+      border-bottom: 1px solid rgba(16, 32, 51, 0.08);
+      font-size: 0.94rem;
+      vertical-align: top;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      background: rgba(248, 250, 253, 0.96);
+      color: var(--muted);
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      z-index: 1;
+    }
+
+    tbody tr:hover {
+      background: rgba(18, 104, 243, 0.04);
+    }
+
+    .table-title {
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    .empty-state {
+      display: grid;
+      place-items: center;
+      text-align: center;
+      padding: 30px 18px;
+      color: var(--muted);
+    }
+
+    .session-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      text-decoration: none;
+      color: var(--blue-deep);
+      font-weight: 700;
+    }
+
+    .session-link:hover {
+      text-decoration: underline;
+    }
+
+    .footer-note {
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.6;
+    }
+
+    @media (max-width: 1260px) {
+      .metrics {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .dashboard,
+      .split,
+      .hero {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 920px) {
+      .filters {
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+      }
+
+      .field {
+        grid-column: span 3;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .shell {
+        padding: 18px 14px 28px;
+      }
+
+      .topbar {
+        position: static;
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .filters {
+        grid-template-columns: 1fr;
+      }
+
+      .field {
+        grid-column: span 1;
+      }
+
+      .panel-head,
+      .map-head,
+      .insight-top,
+      .session-top,
+      .queue-top {
+        flex-direction: column;
+      }
+
+      .map-stage {
+        min-height: 360px;
+      }
+
+      table {
+        min-width: 620px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="topbar">
+      <a class="brand" href="home.html">
+        <span class="brand-badge"><i class="fa-solid fa-road"></i></span>
+        <span>Road Watch</span>
+      </a>
+      <nav class="nav">
+        <a href="home.html">Home</a>
+        <a href="dashboard.html">Dashboard</a>
+        <a href="analytics.html" class="active">Analytics</a>
+        <a href="results.html">Results</a>
+        <a href="about.html">About</a>
+      </nav>
+    </div>
+
+    <section class="hero">
+      <div class="hero-main">
+        <span class="eyebrow"><i class="fa-solid fa-chart-line"></i> Phase 2 Area Analytics</span>
+        <h1>Turn inspection sessions into zone, route, and closure intelligence.</h1>
+        <p>Compare road health across wards and corridors, surface repeat-defect clusters on the map, and keep the maintenance backlog visible by area instead of scanning session cards one by one.</p>
+        <div class="hero-meta">
+          <span class="hero-chip" id="backendLabel">Backend: detecting...</span>
+          <span class="hero-chip" id="heroCoverage">Coverage: 0 zones, 0 routes</span>
+          <span class="hero-chip" id="heroBacklog">Open work orders: 0</span>
+          <span class="hero-chip" id="heroStatus">Filters: none</span>
+        </div>
+      </div>
+      <aside class="hero-side">
+        <div class="status-pill" id="statusPill"><i class="fa-solid fa-wave-square"></i><span id="statusText">Loading analytics...</span></div>
+        <div>
+          <h2>What this page is for</h2>
+          <p>Heatmap visibility for field teams, ranked summaries for reviewers, and route-level backlog signals for engineering follow-through.</p>
+        </div>
+        <div class="status-list">
+          <div class="status-line"><strong>Heat layer</strong><span id="heatMeta">Waiting for data</span></div>
+          <div class="status-line"><strong>Trend window</strong><span id="trendMeta">Waiting for data</span></div>
+          <div class="status-line"><strong>Recent runs</strong><span id="recentMeta">Waiting for data</span></div>
+        </div>
+      </aside>
+    </section>
+
+    <section class="toolbar">
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Filter Analytics</h2>
+            <p class="panel-copy">Slice the defect picture by date, area, route, severity, or workflow status without leaving the current Flask setup.</p>
+          </div>
+          <div class="panel-actions">
+            <button class="button" id="applyFiltersBtn" type="submit" form="filterForm"><i class="fa-solid fa-filter"></i> Apply Filters</button>
+            <button class="button ghost" id="clearFiltersBtn" type="button"><i class="fa-solid fa-rotate-left"></i> Clear</button>
+            <button class="button secondary" id="refreshBtn" type="button"><i class="fa-solid fa-rotate"></i> Refresh</button>
+          </div>
+        </div>
+        <form id="filterForm">
+          <div class="filters">
+            <div class="field">
+              <label for="dateFrom">Date From</label>
+              <input type="date" id="dateFrom" name="date_from">
+            </div>
+            <div class="field">
+              <label for="dateTo">Date To</label>
+              <input type="date" id="dateTo" name="date_to">
+            </div>
+            <div class="field">
+              <label for="zoneSelect">Zone</label>
+              <select id="zoneSelect" name="zone">
+                <option value="">All zones</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="wardSelect">Ward</label>
+              <select id="wardSelect" name="ward">
+                <option value="">All wards</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="routeSelect">Route</label>
+              <select id="routeSelect" name="route_name">
+                <option value="">All routes</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="segmentSelect">Road Segment</label>
+              <select id="segmentSelect" name="road_segment">
+                <option value="">All segments</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="severitySelect">Severity</label>
+              <select id="severitySelect" name="severity">
+                <option value="">All severities</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="statusSelect">Workflow Status</label>
+              <select id="statusSelect" name="status">
+                <option value="">All statuses</option>
+              </select>
+            </div>
+          </div>
+        </form>
+        <div class="active-filters" id="activeFilters"></div>
+      </section>
+    </section>
+
+    <section class="metrics" id="metricsGrid">
+      <article class="metric-card"><span>Sessions</span><strong id="metricSessions">0</strong><small>Runs included in the current slice.</small></article>
+      <article class="metric-card"><span>Detections</span><strong id="metricDetections">0</strong><small>Surface defects recorded across filtered sessions.</small></article>
+      <article class="metric-card"><span>Total Area</span><strong id="metricArea">0.00 m2</strong><small>Combined estimated defect area.</small></article>
+      <article class="metric-card"><span>Avg Health</span><strong id="metricHealth">0.00</strong><small>Average road health score for the filtered set.</small></article>
+      <article class="metric-card"><span>Resolved</span><strong id="metricResolved">0</strong><small>Sessions with work orders marked fixed or verified.</small></article>
+      <article class="metric-card"><span>Verified</span><strong id="metricVerified">0</strong><small>Sessions that have review closure complete.</small></article>
+      <article class="metric-card"><span>Open Queue</span><strong id="metricOpen">0</strong><small>Assigned or active work still needing closure.</small></article>
+      <article class="metric-card"><span>Coverage</span><strong id="metricCoverage">0 / 0</strong><small>Zones and routes represented in this view.</small></article>
+    </section>
+
+    <section class="dashboard">
+      <section class="panel map-panel">
+        <div class="map-head">
+          <div>
+            <h2>Defect Heat Layer</h2>
+            <p class="map-copy">This layer aggregates GPS detections from filtered sessions so repeat-damage corridors stand out immediately. If the heat plugin is unavailable, the map falls back to weighted severity markers.</p>
+            <div class="legend">
+              <span class="legend-chip"><span class="legend-dot" style="background:#16a34a;"></span> Minor</span>
+              <span class="legend-chip"><span class="legend-dot" style="background:#f59e0b;"></span> Moderate</span>
+              <span class="legend-chip"><span class="legend-dot" style="background:#f97316;"></span> Major</span>
+              <span class="legend-chip"><span class="legend-dot" style="background:#dc2626;"></span> Severe</span>
+            </div>
+          </div>
+          <div class="mini-stats" id="mapStats">
+            <span class="mini-stat">No heat points yet</span>
+          </div>
+        </div>
+        <div class="map-stage">
+          <div class="map-empty" id="mapEmpty">
+            <div>
+              <i class="fa-solid fa-map-location-dot fa-2x"></i>
+              <strong>No mapped detections yet</strong>
+              <div>Add GPS-tagged sessions or loosen the current filters to render the heat layer.</div>
+            </div>
+          </div>
+          <div id="analyticsMap"></div>
+        </div>
+      </section>
+
+      <div class="stack">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Repeat Defect Areas</h2>
+              <p class="panel-copy">Hotspots where the same road segment keeps showing problems across multiple runs.</p>
+            </div>
+          </div>
+          <div class="insight-list" id="repeatAreas"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Recent Sessions</h2>
+              <p class="panel-copy">Jump straight into the results page for the latest filtered runs.</p>
+            </div>
+          </div>
+          <div class="session-list" id="recentSessions"></div>
+        </section>
+      </div>
+    </section>
+
+    <section class="split">
+      <section class="panel chart-wrap">
+        <div class="panel-head">
+          <div>
+            <h2>Monthly Trend</h2>
+            <p class="panel-copy">See whether detection pressure and health scores are moving in the right direction over time.</p>
+          </div>
+        </div>
+        <canvas id="trendChart" aria-label="Monthly trend chart"></canvas>
+        <div class="chart-fallback" id="chartFallback"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Unresolved Queue By Route</h2>
+            <p class="panel-copy">Routes with the most unresolved inspection sessions after accounting for fixed and verified closures.</p>
+          </div>
+        </div>
+        <div class="queue-list" id="unresolvedQueue"></div>
+      </section>
+    </section>
+
+    <section class="split">
+      <section class="panel table-panel">
+        <div class="panel-head">
+          <div>
+            <h2>Zone Summary</h2>
+            <p class="panel-copy">Top-level view of activity and closure performance by zone.</p>
+          </div>
+        </div>
+        <div class="table-wrap" id="zoneTableWrap"></div>
+      </section>
+
+      <section class="panel table-panel">
+        <div class="panel-head">
+          <div>
+            <h2>Ward Summary</h2>
+            <p class="panel-copy">Break down demand and response inside each zone.</p>
+          </div>
+        </div>
+        <div class="table-wrap" id="wardTableWrap"></div>
+      </section>
+    </section>
+
+    <section class="panel table-panel">
+      <div class="panel-head">
+        <div>
+          <h2>Route Summary</h2>
+          <p class="panel-copy">Operational view of corridors, segments, and latest run timing.</p>
+        </div>
+      </div>
+      <div class="table-wrap" id="routeTableWrap"></div>
+      <p class="footer-note">Route comparison over time is planned for the next phase. This page already captures the route metadata and latest-run context needed for that build.</p>
+    </section>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js" crossorigin=""></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <script>
+    function detectBackend() {
+      const host = window.location.hostname;
+      if (window.location.protocol === "file:") return "http://localhost:7860";
+      if (host === "localhost") return "http://localhost:7860";
+      if (host === "127.0.0.1") return "http://127.0.0.1:7860";
+      if (host === "::1" || host === "[::1]") return "http://127.0.0.1:7860";
+      if (host.endsWith(".netlify.app")) return "https://YOUR-HF-SPACE.hf.space";
+      if (host.endsWith(".hf.space")) return window.location.origin;
+      return window.location.origin;
+    }
+
+    const backend = detectBackend();
+    const backendLabel = document.getElementById("backendLabel");
+    const heroCoverage = document.getElementById("heroCoverage");
+    const heroBacklog = document.getElementById("heroBacklog");
+    const heroStatus = document.getElementById("heroStatus");
+    const statusPill = document.getElementById("statusPill");
+    const statusText = document.getElementById("statusText");
+    const heatMeta = document.getElementById("heatMeta");
+    const trendMeta = document.getElementById("trendMeta");
+    const recentMeta = document.getElementById("recentMeta");
+    const filterForm = document.getElementById("filterForm");
+    const activeFiltersEl = document.getElementById("activeFilters");
+    const mapEmpty = document.getElementById("mapEmpty");
+    const mapStats = document.getElementById("mapStats");
+    const analyticsMapEl = document.getElementById("analyticsMap");
+    const repeatAreasEl = document.getElementById("repeatAreas");
+    const recentSessionsEl = document.getElementById("recentSessions");
+    const unresolvedQueueEl = document.getElementById("unresolvedQueue");
+    const zoneTableWrap = document.getElementById("zoneTableWrap");
+    const wardTableWrap = document.getElementById("wardTableWrap");
+    const routeTableWrap = document.getElementById("routeTableWrap");
+    const chartFallback = document.getElementById("chartFallback");
+    const trendCanvas = document.getElementById("trendChart");
+    const zoneSelect = document.getElementById("zoneSelect");
+    const wardSelect = document.getElementById("wardSelect");
+    const routeSelect = document.getElementById("routeSelect");
+    const segmentSelect = document.getElementById("segmentSelect");
+    const severitySelect = document.getElementById("severitySelect");
+    const statusSelect = document.getElementById("statusSelect");
+    backendLabel.textContent = `Backend: ${backend}`;
+
+    const metricEls = {
+      sessions: document.getElementById("metricSessions"),
+      detections: document.getElementById("metricDetections"),
+      area: document.getElementById("metricArea"),
+      health: document.getElementById("metricHealth"),
+      resolved: document.getElementById("metricResolved"),
+      verified: document.getElementById("metricVerified"),
+      open: document.getElementById("metricOpen"),
+      coverage: document.getElementById("metricCoverage"),
+    };
+
+    const state = {
+      map: null,
+      mapMarkers: [],
+      heatLayer: null,
+      trendChart: null,
+      payloads: {
+        overview: null,
+        zones: null,
+        routes: null,
+      },
+    };
+
+    function resolveFrontendUrl(path) {
+      return path;
+    }
+
+    async function fetchJson(url, options = {}) {
+      const res = await fetch(url, options);
+      const data = await res.json().catch(() => ({}));
+      return { res, data };
+    }
+
+    function safeFixed(value, digits = 2) {
+      const num = Number(value);
+      return Number.isFinite(num) ? num.toFixed(digits) : Number(0).toFixed(digits);
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function formatDate(value) {
+      if (value === null || value === undefined || value === "") return "Unknown time";
+      if (typeof value === "string" && !/^\d+(\.\d+)?$/.test(value)) {
+        const parsed = new Date(value);
+        if (!Number.isNaN(parsed.getTime())) return parsed.toLocaleString();
+      }
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric) || numeric <= 0) return "Unknown time";
+      const millis = numeric > 1e12 ? numeric : numeric * 1000;
+      return new Date(millis).toLocaleString();
+    }
+
+    function humanizeStatus(status) {
+      return String(status || "No work order")
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+    }
+
+    function statusTone(status) {
+      const value = String(status || "none").toLowerCase();
+      if (["open", "assigned", "in_progress", "fixed", "verified", "reopened"].includes(value)) return value;
+      return "none";
+    }
+
+    function severityTone(severity) {
+      const value = String(severity || "minor").toLowerCase();
+      if (value === "severe") return "severity-severe";
+      if (value === "major") return "severity-major";
+      if (value === "moderate") return "severity-moderate";
+      return "severity-minor";
+    }
+
+    function severityColor(severity) {
+      const value = String(severity || "Minor");
+      if (value === "Severe") return "#dc2626";
+      if (value === "Major") return "#f97316";
+      if (value === "Moderate") return "#f59e0b";
+      return "#16a34a";
+    }
+
+    function setStatus(message, tone = "info") {
+      statusText.textContent = message;
+      statusPill.className = "status-pill";
+      if (tone === "warn" || tone === "error") statusPill.classList.add(tone);
+    }
+
+    function ensureMap() {
+      if (state.map || !window.L) return state.map;
+      state.map = window.L.map("analyticsMap", { scrollWheelZoom: true });
+      window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap contributors",
+      }).addTo(state.map);
+      return state.map;
+    }
+
+    function clearMapLayers() {
+      if (state.heatLayer) {
+        try { state.heatLayer.remove(); } catch (error) {}
+        state.heatLayer = null;
+      }
+      (state.mapMarkers || []).forEach((layer) => {
+        try { layer.remove(); } catch (error) {}
+      });
+      state.mapMarkers = [];
+    }
+
+    function setMapEmpty(title, copy) {
+      clearMapLayers();
+      mapEmpty.innerHTML = `
+        <div>
+          <i class="fa-solid fa-map-location-dot fa-2x"></i>
+          <strong>${escapeHtml(title)}</strong>
+          <div>${escapeHtml(copy)}</div>
+        </div>
+      `;
+      mapEmpty.classList.remove("hidden");
+      analyticsMapEl.classList.remove("active");
+      mapStats.innerHTML = `<span class="mini-stat">No heat points yet</span>`;
+      heatMeta.textContent = "No GPS points in the current view";
+    }
+
+    function formQueryParams() {
+      const params = new URLSearchParams();
+      const formData = new FormData(filterForm);
+      for (const [key, rawValue] of formData.entries()) {
+        const value = String(rawValue || "").trim();
+        if (value) params.set(key, value);
+      }
+      return params;
+    }
+
+    function applyUrlFilters() {
+      const params = new URLSearchParams(window.location.search);
+      for (const [key, value] of params.entries()) {
+        const field = filterForm.elements.namedItem(key);
+        if (field) field.value = value;
+      }
+    }
+
+    function syncUrlFromFilters() {
+      const params = formQueryParams();
+      const url = new URL(window.location.href);
+      url.search = params.toString();
+      window.history.replaceState({}, "", url);
+      return params;
+    }
+
+    function setSelectOptions(selectEl, values, currentValue, emptyLabel) {
+      const unique = [];
+      const seen = new Set();
+      (values || []).forEach((value) => {
+        const next = String(value || "").trim();
+        if (!next || seen.has(next)) return;
+        seen.add(next);
+        unique.push(next);
+      });
+      if (currentValue && !seen.has(currentValue)) unique.unshift(currentValue);
+      selectEl.innerHTML = `<option value="">${escapeHtml(emptyLabel)}</option>` + unique.map((value) => {
+        const selected = currentValue === value ? " selected" : "";
+        return `<option value="${escapeHtml(value)}"${selected}>${escapeHtml(value)}</option>`;
+      }).join("");
+    }
+
+    function renderActiveFilters(activeFilters) {
+      const entries = Object.entries(activeFilters || {});
+      heroStatus.textContent = entries.length ? `Filters: ${entries.length} active` : "Filters: none";
+      if (!entries.length) {
+        activeFiltersEl.innerHTML = "";
+        return;
+      }
+      activeFiltersEl.innerHTML = entries.map(([key, value]) => {
+        const label = key.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+        return `<span class="filter-chip"><i class="fa-solid fa-filter"></i>${escapeHtml(label)}: ${escapeHtml(value)}</span>`;
+      }).join("");
+    }
+
+    function renderSummary(summary) {
+      const data = summary || {};
+      metricEls.sessions.textContent = String(Number(data.session_count || 0));
+      metricEls.detections.textContent = String(Number(data.detection_count || 0));
+      metricEls.area.textContent = `${safeFixed(data.total_area)} m2`;
+      metricEls.health.textContent = safeFixed(data.avg_health_score);
+      metricEls.resolved.textContent = String(Number(data.resolved_count || 0));
+      metricEls.verified.textContent = String(Number(data.verified_count || 0));
+      metricEls.open.textContent = String(Number(data.open_work_orders || 0));
+      metricEls.coverage.textContent = `${Number(data.zone_count || 0)} / ${Number(data.route_count || 0)}`;
+      heroCoverage.textContent = `Coverage: ${Number(data.zone_count || 0)} zones, ${Number(data.route_count || 0)} routes`;
+      heroBacklog.textContent = `Open work orders: ${Number(data.open_work_orders || 0)}`;
+    }
+
+    function renderRepeatAreas(items) {
+      if (!Array.isArray(items) || !items.length) {
+        repeatAreasEl.innerHTML = `<div class="empty-state">No repeat-defect areas were found for the current filters.</div>`;
+        return;
+      }
+      repeatAreasEl.innerHTML = items.slice(0, 8).map((item) => {
+        return `
+          <article class="insight-card">
+            <div class="insight-top">
+              <strong>${escapeHtml(item.label || "Repeat area")}</strong>
+              <span class="tag ${severityTone(item.top_severity)}">${escapeHtml(item.top_severity || "Minor")}</span>
+            </div>
+            <div class="subtle">${escapeHtml(item.route_name || "Unassigned route")} | ${escapeHtml(item.road_segment || "General")} | ${escapeHtml(item.zone || "Unassigned zone")}</div>
+            <div class="mini-stats">
+              <span class="mini-stat">${Number(item.session_count || 0)} sessions</span>
+              <span class="mini-stat">${Number(item.detection_count || 0)} detections</span>
+              <span class="mini-stat">${safeFixed(item.total_area)} m2</span>
+            </div>
+          </article>
+        `;
+      }).join("");
+    }
+
+    function renderRecentSessions(items) {
+      if (!Array.isArray(items) || !items.length) {
+        recentSessionsEl.innerHTML = `<div class="empty-state">No filtered sessions available yet.</div>`;
+        recentMeta.textContent = "No recent runs in the current slice";
+        return;
+      }
+      recentMeta.textContent = `${items.length} recent session${items.length === 1 ? "" : "s"} shown`;
+      recentSessionsEl.innerHTML = items.map((item) => {
+        const status = statusTone(item.workflow_status);
+        return `
+          <article class="session-card">
+            <div class="session-top">
+              <div>
+                <div class="session-title">${escapeHtml(item.video_name || item.session_id || "Unnamed session")}</div>
+                <div class="subtle">${escapeHtml(item.location_label || "Unassigned area")}</div>
+              </div>
+              <span class="tag status ${status}">${escapeHtml(humanizeStatus(item.workflow_status))}</span>
+            </div>
+            <div class="mini-stats">
+              <span class="mini-stat">Score ${safeFixed(item.road_health_score)}</span>
+              <span class="mini-stat">${Number(item.total_detections || 0)} detections</span>
+              <span class="mini-stat">${safeFixed(item.total_area)} m2</span>
+            </div>
+            <div class="subtle">${escapeHtml(formatDate(item.generated_at))}</div>
+            <a class="session-link" href="${escapeHtml(resolveFrontendUrl(`results.html?sid=${encodeURIComponent(item.session_id || "")}`))}">
+              <i class="fa-solid fa-arrow-up-right-from-square"></i> Open in Results
+            </a>
+          </article>
+        `;
+      }).join("");
+    }
+
+    function deriveUnresolvedQueue(routeSummaries) {
+      return (Array.isArray(routeSummaries) ? routeSummaries : [])
+        .map((item) => ({
+          ...item,
+          unresolved_count: Math.max(0, Number(item.session_count || 0) - Number(item.resolved_count || 0)),
+        }))
+        .filter((item) => item.unresolved_count > 0)
+        .sort((a, b) => {
+          const unresolvedDelta = Number(b.unresolved_count || 0) - Number(a.unresolved_count || 0);
+          if (unresolvedDelta) return unresolvedDelta;
+          return Number(b.detection_count || 0) - Number(a.detection_count || 0);
+        });
+    }
+
+    function renderUnresolvedQueue(routeSummaries) {
+      const items = deriveUnresolvedQueue(routeSummaries).slice(0, 8);
+      if (!items.length) {
+        unresolvedQueueEl.innerHTML = `<div class="empty-state">No unresolved route backlog is visible for the current filters.</div>`;
+        return;
+      }
+      unresolvedQueueEl.innerHTML = items.map((item) => {
+        return `
+          <article class="queue-card">
+            <div class="queue-top">
+              <div>
+                <div class="queue-title">${escapeHtml(item.route_name || "Unassigned route")}</div>
+                <div class="subtle">${escapeHtml(item.road_segment || "General")} | ${escapeHtml(item.zone || "Unassigned zone")} | ${escapeHtml(item.ward || "Unassigned ward")}</div>
+              </div>
+              <span class="tag status in_progress">${Number(item.unresolved_count || 0)} open</span>
+            </div>
+            <div class="mini-stats">
+              <span class="mini-stat">${Number(item.session_count || 0)} sessions</span>
+              <span class="mini-stat">${Number(item.resolved_count || 0)} resolved</span>
+              <span class="mini-stat">${Number(item.detection_count || 0)} detections</span>
+              <span class="mini-stat">Score ${safeFixed(item.avg_health_score)}</span>
+            </div>
+            <div class="subtle">Latest run: ${escapeHtml(formatDate(item.latest_run_at))}</div>
+          </article>
+        `;
+      }).join("");
+    }
+
+    function renderTable(targetEl, columns, rows, emptyText) {
+      if (!Array.isArray(rows) || !rows.length) {
+        targetEl.innerHTML = `<div class="empty-state">${escapeHtml(emptyText)}</div>`;
+        return;
+      }
+      const head = columns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join("");
+      const body = rows.map((row) => {
+        const cells = columns.map((column) => `<td>${column.render(row)}</td>`).join("");
+        return `<tr>${cells}</tr>`;
+      }).join("");
+      targetEl.innerHTML = `
+        <table>
+          <thead><tr>${head}</tr></thead>
+          <tbody>${body}</tbody>
+        </table>
+      `;
+    }
+
+    function renderZoneTable(rows) {
+      renderTable(zoneTableWrap, [
+        {
+          label: "Zone",
+          render: (row) => `<div class="table-title">${escapeHtml(row.zone || "Unassigned")}</div>`,
+        },
+        { label: "Sessions", render: (row) => String(Number(row.session_count || 0)) },
+        { label: "Detections", render: (row) => String(Number(row.detection_count || 0)) },
+        { label: "Area", render: (row) => `${safeFixed(row.total_area)} m2` },
+        { label: "Avg Health", render: (row) => safeFixed(row.avg_health_score) },
+        { label: "Resolved", render: (row) => String(Number(row.resolved_count || 0)) },
+        { label: "Verified", render: (row) => String(Number(row.verified_count || 0)) },
+        { label: "Wards", render: (row) => String(Number(row.ward_count || 0)) },
+        { label: "Routes", render: (row) => String(Number(row.route_count || 0)) },
+      ], rows, "No zone summaries are available for the current filters.");
+    }
+
+    function renderWardTable(rows) {
+      renderTable(wardTableWrap, [
+        {
+          label: "Ward",
+          render: (row) => `
+            <div class="table-title">${escapeHtml(row.ward || "Unassigned")}</div>
+            <div class="subtle">${escapeHtml(row.zone || "Unassigned zone")}</div>
+          `,
+        },
+        { label: "Sessions", render: (row) => String(Number(row.session_count || 0)) },
+        { label: "Detections", render: (row) => String(Number(row.detection_count || 0)) },
+        { label: "Area", render: (row) => `${safeFixed(row.total_area)} m2` },
+        { label: "Avg Health", render: (row) => safeFixed(row.avg_health_score) },
+        { label: "Resolved", render: (row) => String(Number(row.resolved_count || 0)) },
+      ], rows, "No ward summaries are available for the current filters.");
+    }
+
+    function renderRouteTable(rows) {
+      renderTable(routeTableWrap, [
+        {
+          label: "Route",
+          render: (row) => `
+            <div class="table-title">${escapeHtml(row.route_name || "Unassigned route")}</div>
+            <div class="subtle">${escapeHtml(row.road_segment || "General")}</div>
+          `,
+        },
+        {
+          label: "Area",
+          render: (row) => `
+            <div>${escapeHtml(row.zone || "Unassigned zone")}</div>
+            <div class="subtle">${escapeHtml(row.ward || "Unassigned ward")}</div>
+          `,
+        },
+        { label: "Sessions", render: (row) => String(Number(row.session_count || 0)) },
+        { label: "Detections", render: (row) => String(Number(row.detection_count || 0)) },
+        { label: "Area Size", render: (row) => `${safeFixed(row.total_area)} m2` },
+        { label: "Avg Health", render: (row) => safeFixed(row.avg_health_score) },
+        { label: "Resolved", render: (row) => String(Number(row.resolved_count || 0)) },
+        { label: "Latest Run", render: (row) => escapeHtml(formatDate(row.latest_run_at)) },
+      ], rows, "No route summaries are available for the current filters.");
+    }
+
+    function renderChartFallback(rows) {
+      if (!Array.isArray(rows) || !rows.length) {
+        chartFallback.innerHTML = `<div class="empty-state">No monthly trend data is available yet.</div>`;
+        return;
+      }
+      chartFallback.innerHTML = rows.map((row) => {
+        return `
+          <article class="queue-card">
+            <div class="queue-top">
+              <div class="queue-title">${escapeHtml(row.month)}</div>
+              <span class="mini-stat">Score ${safeFixed(row.avg_health_score)}</span>
+            </div>
+            <div class="mini-stats">
+              <span class="mini-stat">${Number(row.session_count || 0)} sessions</span>
+              <span class="mini-stat">${Number(row.detection_count || 0)} detections</span>
+              <span class="mini-stat">${safeFixed(row.total_area)} m2</span>
+              <span class="mini-stat">${Number(row.resolved_count || 0)} resolved</span>
+            </div>
+          </article>
+        `;
+      }).join("");
+    }
+
+    function renderTrendChart(rows) {
+      if (!Array.isArray(rows) || !rows.length) {
+        if (state.trendChart) {
+          state.trendChart.destroy();
+          state.trendChart = null;
+        }
+        trendCanvas.style.display = "none";
+        renderChartFallback([]);
+        trendMeta.textContent = "No dated sessions in the current slice";
+        return;
+      }
+
+      trendMeta.textContent = `${rows.length} month${rows.length === 1 ? "" : "s"} in view`;
+
+      if (!window.Chart) {
+        trendCanvas.style.display = "none";
+        renderChartFallback(rows);
+        return;
+      }
+
+      trendCanvas.style.display = "block";
+      chartFallback.innerHTML = "";
+      const labels = rows.map((row) => row.month);
+      const detections = rows.map((row) => Number(row.detection_count || 0));
+      const resolved = rows.map((row) => Number(row.resolved_count || 0));
+      const health = rows.map((row) => Number(row.avg_health_score || 0));
+
+      if (state.trendChart) state.trendChart.destroy();
+      state.trendChart = new window.Chart(trendCanvas, {
+        type: "bar",
+        data: {
+          labels,
+          datasets: [
+            {
+              label: "Detections",
+              data: detections,
+              backgroundColor: "rgba(18, 104, 243, 0.72)",
+              borderRadius: 10,
+              maxBarThickness: 34,
+              yAxisID: "y",
+            },
+            {
+              label: "Resolved Sessions",
+              data: resolved,
+              backgroundColor: "rgba(15, 118, 110, 0.72)",
+              borderRadius: 10,
+              maxBarThickness: 34,
+              yAxisID: "y",
+            },
+            {
+              label: "Avg Health Score",
+              data: health,
+              type: "line",
+              borderColor: "#b45309",
+              backgroundColor: "#b45309",
+              tension: 0.3,
+              borderWidth: 3,
+              pointRadius: 4,
+              yAxisID: "y1",
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: {
+            mode: "index",
+            intersect: false,
+          },
+          plugins: {
+            legend: {
+              labels: {
+                usePointStyle: true,
+                font: { family: "Manrope" },
+              },
+            },
+          },
+          scales: {
+            x: {
+              grid: { display: false },
+              ticks: { font: { family: "Manrope" } },
+            },
+            y: {
+              beginAtZero: true,
+              grid: { color: "rgba(16, 32, 51, 0.08)" },
+              ticks: { font: { family: "Manrope" } },
+            },
+            y1: {
+              beginAtZero: true,
+              position: "right",
+              suggestedMax: 100,
+              grid: { drawOnChartArea: false },
+              ticks: { font: { family: "Manrope" } },
+            },
+          },
+        },
+      });
+    }
+
+    function renderHeatMap(heatPoints, activeFilters, summary) {
+      if (!window.L || !Array.isArray(heatPoints) || !heatPoints.length) {
+        setMapEmpty("No mapped detections yet", "Add GPS-tagged sessions or loosen the current filters to render the heat layer.");
+        return;
+      }
+
+      const map = ensureMap();
+      clearMapLayers();
+      analyticsMapEl.classList.add("active");
+      mapEmpty.classList.add("hidden");
+
+      const bounds = [];
+      const heatInput = [];
+      heatPoints.forEach((point) => {
+        const lat = Number(point.lat);
+        const lon = Number(point.lon);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+        bounds.push([lat, lon]);
+        heatInput.push([lat, lon, Math.max(0.2, Math.min(1, Number(point.intensity || 0) / 10))]);
+      });
+
+      if (window.L.heatLayer && heatInput.length) {
+        state.heatLayer = window.L.heatLayer(heatInput, {
+          radius: 28,
+          blur: 22,
+          maxZoom: 16,
+          minOpacity: 0.4,
+          gradient: {
+            0.2: "#16a34a",
+            0.45: "#f59e0b",
+            0.7: "#f97316",
+            1.0: "#dc2626",
+          },
+        }).addTo(map);
+      }
+
+      heatPoints.slice(0, 180).forEach((point) => {
+        const marker = window.L.circleMarker([point.lat, point.lon], {
+          radius: Math.max(5, Math.min(15, Number(point.intensity || 0) + 3)),
+          color: "#fff",
+          weight: 1.2,
+          fillColor: severityColor(point.severity),
+          fillOpacity: 0.85,
+        }).bindPopup(
+          `<strong>${escapeHtml(point.severity || "Minor")} signal</strong><br>` +
+          `Intensity: ${safeFixed(point.intensity, 1)}<br>` +
+          `Detections: ${Number(point.detection_count || 0)}<br>` +
+          `Zone: ${escapeHtml(point.zone || "Unassigned")}<br>` +
+          `Route: ${escapeHtml(point.route_name || "Unassigned")}<br>` +
+          `Segment: ${escapeHtml(point.road_segment || "General")}`
+        );
+        marker.addTo(map);
+        state.mapMarkers.push(marker);
+      });
+
+      if (bounds.length) {
+        map.fitBounds(bounds, { padding: [28, 28] });
+        setTimeout(() => map.invalidateSize(), 60);
+      }
+
+      const severityText = activeFilters && activeFilters.severity ? `Severity: ${activeFilters.severity}` : "All severities";
+      mapStats.innerHTML = [
+        `<span class="mini-stat">${Number(summary.session_count || 0)} sessions</span>`,
+        `<span class="mini-stat">${heatPoints.length} heat points</span>`,
+        `<span class="mini-stat">${severityText}</span>`,
+      ].join("");
+      heatMeta.textContent = `${heatPoints.length} mapped point${heatPoints.length === 1 ? "" : "s"} in the current view`;
+    }
+
+    function syncFilterOptions(filters, activeFilters) {
+      const current = activeFilters || {};
+      setSelectOptions(zoneSelect, filters && filters.zones, current.zone || zoneSelect.value, "All zones");
+      setSelectOptions(wardSelect, filters && filters.wards, current.ward || wardSelect.value, "All wards");
+      setSelectOptions(routeSelect, filters && filters.routes, current.route_name || routeSelect.value, "All routes");
+      setSelectOptions(segmentSelect, filters && filters.segments, current.road_segment || segmentSelect.value, "All segments");
+      setSelectOptions(severitySelect, filters && filters.severities, current.severity || severitySelect.value, "All severities");
+      setSelectOptions(statusSelect, filters && filters.statuses, current.status || statusSelect.value, "All statuses");
+    }
+
+    async function loadAnalytics() {
+      const params = syncUrlFromFilters();
+      const query = params.toString();
+      const suffix = query ? `?${query}` : "";
+      setStatus("Loading analytics...");
+
+      try {
+        const [overviewRes, zonesRes, routesRes] = await Promise.all([
+          fetchJson(`${backend}/analytics/overview${suffix}`, { cache: "no-store" }),
+          fetchJson(`${backend}/analytics/zones${suffix}`, { cache: "no-store" }),
+          fetchJson(`${backend}/analytics/routes${suffix}`, { cache: "no-store" }),
+        ]);
+
+        if (!overviewRes.res.ok) throw new Error(overviewRes.data.error || "Overview analytics failed");
+        if (!zonesRes.res.ok) throw new Error(zonesRes.data.error || "Zone analytics failed");
+        if (!routesRes.res.ok) throw new Error(routesRes.data.error || "Route analytics failed");
+
+        state.payloads.overview = overviewRes.data;
+        state.payloads.zones = zonesRes.data;
+        state.payloads.routes = routesRes.data;
+
+        const activeFilters = overviewRes.data.active_filters || {};
+        syncFilterOptions(overviewRes.data.filters || {}, activeFilters);
+        renderActiveFilters(activeFilters);
+        renderSummary(overviewRes.data.summary || {});
+        renderHeatMap(zonesRes.data.heat_points || [], activeFilters, overviewRes.data.summary || {});
+        renderRepeatAreas(overviewRes.data.repeat_areas || []);
+        renderRecentSessions(routesRes.data.recent_sessions || overviewRes.data.recent_sessions || []);
+        renderUnresolvedQueue(routesRes.data.route_summaries || []);
+        renderZoneTable(zonesRes.data.zone_summaries || overviewRes.data.zone_summaries || []);
+        renderWardTable(zonesRes.data.ward_summaries || []);
+        renderRouteTable(routesRes.data.route_summaries || overviewRes.data.route_summaries || []);
+        renderTrendChart(routesRes.data.monthly_trends || overviewRes.data.monthly_trends || []);
+
+        const summary = overviewRes.data.summary || {};
+        setStatus(`Showing ${Number(summary.session_count || 0)} session${Number(summary.session_count || 0) === 1 ? "" : "s"} across ${Number(summary.zone_count || 0)} zones.`);
+        return;
+      } catch (error) {
+        setStatus(error.message || "Analytics load failed", "error");
+        renderActiveFilters({});
+        renderSummary({});
+        renderRepeatAreas([]);
+        renderRecentSessions([]);
+        renderUnresolvedQueue([]);
+        renderZoneTable([]);
+        renderWardTable([]);
+        renderRouteTable([]);
+        renderTrendChart([]);
+        setMapEmpty("Analytics unavailable", "The analytics endpoints could not be loaded from the backend.");
+      }
+    }
+
+    document.getElementById("applyFiltersBtn").addEventListener("click", (event) => {
+      event.preventDefault();
+      loadAnalytics();
+    });
+
+    document.getElementById("refreshBtn").addEventListener("click", () => loadAnalytics());
+
+    document.getElementById("clearFiltersBtn").addEventListener("click", () => {
+      filterForm.reset();
+      loadAnalytics();
+    });
+
+    filterForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      loadAnalytics();
+    });
+
+    applyUrlFilters();
+    loadAnalytics();
+  </script>
+</body>
+</html>
